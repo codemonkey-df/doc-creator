@@ -1074,6 +1074,24 @@ class StructuredLogger:
 
 ## 5. Complete Workflow Implementation
 
+### 5.0 Entry and session lifecycle (Story 1.4)
+
+**Entry owns session lifecycle.** Session is created at entry (after validation); the graph does **not** create a session. The graph starts at `scan_assets` (no "initialize" node that creates a session). Cleanup is **entry-owned**: the entry calls `SessionManager.cleanup(session_id, archive=success)` after `workflow.invoke` returns. No other code path deletes or archives the session.
+
+**Entry flow:**
+1. `validate_requested_files(requested_paths, base_dir)` → valid Paths, errors.
+2. If no valid files → return `GenerateResult(success=False, validation_errors=errors)`; do not create a session.
+3. `session_id = SessionManager.create()`.
+4. Copy each valid Path to `get_path(session_id) / "inputs" / path.name` (e.g. `shutil.copy`). **Duplicate destination filenames:** last copy wins (documented).
+5. `initial_state = build_initial_state(session_id, input_filenames)`.
+6. `result = workflow.invoke(initial_state)`.
+7. `SessionManager.cleanup(session_id, archive=(result["status"]=="complete"))`.
+8. Return `GenerateResult(success=..., session_id=..., output_path=..., error=..., messages=...)`.
+
+**Graph:** START → scan_assets → END. The first node receives state with `session_id` and `input_files`; it does not create a session.
+
+**Cleanup ownership:** Cleanup runs in exactly one place (entry, after invoke). No cleanup inside the graph.
+
 ### 5.1 LangGraph State Definition
 
 ```python
