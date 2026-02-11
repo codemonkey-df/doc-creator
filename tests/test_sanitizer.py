@@ -198,6 +198,17 @@ def test_missing_file_raises_filenotfound(
         sanitizer.validate(str(missing), base_dir)
 
 
+def test_rejects_directory_path_with_path_not_file(
+    sanitizer: InputSanitizer, base_dir: Path
+) -> None:
+    """GIVEN path that is a directory under base_dir / WHEN validate / THEN ValidationError with code PATH_NOT_FILE."""
+    subdir = base_dir / "subdir"
+    subdir.mkdir()
+    with pytest.raises(ValidationError) as exc_info:
+        sanitizer.validate(str(subdir), base_dir)
+    assert exc_info.value.code == "PATH_NOT_FILE"
+
+
 # --- AC1.1.6: Public API ---
 
 
