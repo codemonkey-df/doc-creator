@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-
-from backend.state import DocumentState, build_initial_state
+from backend.state import build_initial_state
 
 
 # Keys that build_initial_state must set (all keys the graph expects when scan_assets runs).

@@ -47,7 +47,9 @@ def test_graph_invoke_scan_assets_runs_and_uses_session_id_input_files(
     session_id = session_manager.create()
     session_path = session_manager.get_path(session_id)
     (session_path / "inputs").mkdir(parents=True, exist_ok=True)
-    (session_path / "inputs" / "a.txt").write_text("Plain text, no images.", encoding="utf-8")
+    (session_path / "inputs" / "a.txt").write_text(
+        "Plain text, no images.", encoding="utf-8"
+    )
 
     initial = build_initial_state(session_id, ["a.txt"])
     workflow = create_document_workflow(session_manager=session_manager)
@@ -71,7 +73,9 @@ def test_scan_assets_no_missing_refs_routes_to_agent_status_processing(
     session_id = session_manager.create()
     session_path = session_manager.get_path(session_id)
     (session_path / "inputs").mkdir(parents=True, exist_ok=True)
-    (session_path / "inputs" / "doc.md").write_text("# Doc\n\nNo images here.", encoding="utf-8")
+    (session_path / "inputs" / "doc.md").write_text(
+        "# Doc\n\nNo images here.", encoding="utf-8"
+    )
 
     initial = build_initial_state(session_id, ["doc.md"])
     workflow = create_document_workflow(session_manager=session_manager)
