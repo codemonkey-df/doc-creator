@@ -11,3 +11,4 @@ wheels/
 .venv
 .prompts.md
 .claude
+.DS_Store

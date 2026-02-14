@@ -330,8 +330,8 @@ def test_graph_compiles_with_routing_nodes(
 
 def test_graph_has_all_required_nodes(mock_session_manager: SessionManager) -> None:
     """GIVEN session_manager / WHEN create_document_workflow / THEN graph has scan_assets, agent, validate_md, parse_to_json, human_input nodes."""
-    graph = create_document_workflow(session_manager=mock_session_manager)
-    # Check graph structure has nodes by invoking and verifying state transitions
+    # Test that graph compiles successfully; node structure verified in test_graph_compiles_with_routing_nodes
+    create_document_workflow(session_manager=mock_session_manager)
 
 
 def test_graph_routes_through_validate_when_checkpoint_set(
@@ -525,10 +525,12 @@ def test_tools_node_executes_create_checkpoint(
             checkpoint_msg = ToolMessage(
                 tool_call_id="call_123",
                 content="20250214_150812_chapter1.md",
-                name="create_checkpoint"
+                name="create_checkpoint",
             )
             mock_tool_node = MagicMock()
-            mock_tool_node.invoke.return_value = {"messages": [ai_message, checkpoint_msg]}
+            mock_tool_node.invoke.return_value = {
+                "messages": [ai_message, checkpoint_msg]
+            }
             MockToolNode.return_value = mock_tool_node
 
             result = tools_node(base_state_with_session)
@@ -556,7 +558,7 @@ def test_tools_node_executes_request_human_input(
             ask_msg = ToolMessage(
                 tool_call_id="call_456",
                 content="Please upload the missing file",
-                name="request_human_input"
+                name="request_human_input",
             )
             mock_tool_node = MagicMock()
             mock_tool_node.invoke.return_value = {"messages": [ai_message, ask_msg]}
@@ -617,9 +619,15 @@ def test_tools_node_with_multiple_tool_calls(
     with patch("backend.graph_nodes.get_tools"):
         with patch("langgraph.prebuilt.ToolNode") as MockToolNode:
             tool_msg1 = ToolMessage(tool_call_id="1", content="file content")
-            tool_msg2 = ToolMessage(tool_call_id="2", content="20250214_150812_sec1.md", name="create_checkpoint")
+            tool_msg2 = ToolMessage(
+                tool_call_id="2",
+                content="20250214_150812_sec1.md",
+                name="create_checkpoint",
+            )
             mock_tool_node = MagicMock()
-            mock_tool_node.invoke.return_value = {"messages": [ai_message, tool_msg1, tool_msg2]}
+            mock_tool_node.invoke.return_value = {
+                "messages": [ai_message, tool_msg1, tool_msg2]
+            }
             MockToolNode.return_value = mock_tool_node
 
             result = tools_node(base_state_with_session)
@@ -668,7 +676,11 @@ def test_tools_node_state_extraction_checkpoint_id(
     with patch("backend.graph_nodes.get_tools"):
         with patch("langgraph.prebuilt.ToolNode") as MockToolNode:
             checkpoint_basename = "20250214_150812_ch1.md"
-            ckpt_msg = ToolMessage(tool_call_id="ckpt_call", content=checkpoint_basename, name="create_checkpoint")
+            ckpt_msg = ToolMessage(
+                tool_call_id="ckpt_call",
+                content=checkpoint_basename,
+                name="create_checkpoint",
+            )
             mock_tool_node = MagicMock()
             mock_tool_node.invoke.return_value = {"messages": [ai_message, ckpt_msg]}
             MockToolNode.return_value = mock_tool_node
@@ -676,7 +688,10 @@ def test_tools_node_state_extraction_checkpoint_id(
             result = tools_node(base_state_with_session)
 
             # last_checkpoint_id should be extracted
-            assert result.get("last_checkpoint_id") == checkpoint_basename or "last_checkpoint_id" in result
+            assert (
+                result.get("last_checkpoint_id") == checkpoint_basename
+                or "last_checkpoint_id" in result
+            )
 
 
 def test_tools_node_state_extraction_pending_question(
@@ -696,7 +711,11 @@ def test_tools_node_state_extraction_pending_question(
     with patch("backend.graph_nodes.get_tools"):
         with patch("langgraph.prebuilt.ToolNode") as MockToolNode:
             question_text = "Please upload the missing file"
-            ask_msg = ToolMessage(tool_call_id="ask_call", content=question_text, name="request_human_input")
+            ask_msg = ToolMessage(
+                tool_call_id="ask_call",
+                content=question_text,
+                name="request_human_input",
+            )
             mock_tool_node = MagicMock()
             mock_tool_node.invoke.return_value = {"messages": [ai_message, ask_msg]}
             MockToolNode.return_value = mock_tool_node
@@ -704,7 +723,10 @@ def test_tools_node_state_extraction_pending_question(
             result = tools_node(base_state_with_session)
 
             # pending_question should be extracted
-            assert result.get("pending_question") == question_text or "pending_question" in result
+            assert (
+                result.get("pending_question") == question_text
+                or "pending_question" in result
+            )
 
 
 def test_tools_node_error_handling_graceful(

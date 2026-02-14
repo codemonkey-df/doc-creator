@@ -11,14 +11,12 @@ GIVEN-WHEN-THEN format. Tests cover:
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
 
 from backend.graph import create_document_workflow
 from backend.state import DocumentState, build_initial_state
-from backend.utils.sanitizer import InputSanitizer, ValidationError
+from backend.utils.sanitizer import InputSanitizer
 from backend.utils.session_manager import SessionManager
 from backend.utils.settings import SessionSettings
 
@@ -308,8 +306,9 @@ def test_scan_assets_to_human_input_when_missing_references(
 
     initial_state = build_initial_state(session_id, ["test.md"])
 
-    # Lambda conditional edge: "human_input" if missing_references else "agent"
-    routing_fn = lambda s: "human_input" if s.get("missing_references") else "agent"
+    def routing_fn(s: dict) -> str:
+        """Conditional edge: 'human_input' if missing_references else 'agent'."""
+        return "human_input" if s.get("missing_references") else "agent"
 
     workflow = create_document_workflow(session_manager=session_manager)
     # Must provide thread_id when checkpointer is enabled
@@ -336,7 +335,9 @@ def test_scan_assets_to_agent_when_no_missing_references(
 
     initial_state = build_initial_state(session_id, ["test.txt"])
 
-    routing_fn = lambda s: "human_input" if s.get("missing_references") else "agent"
+    def routing_fn(s: dict) -> str:
+        """Conditional edge: 'human_input' if missing_references else 'agent'."""
+        return "human_input" if s.get("missing_references") else "agent"
 
     workflow = create_document_workflow(session_manager=session_manager)
     # Must provide thread_id when checkpointer is enabled

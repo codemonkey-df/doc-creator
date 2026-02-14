@@ -162,8 +162,11 @@ def create_document_workflow(
         messages = s.get("messages", [])
         if messages:
             from langchain_core.messages import AIMessage
+
             last_msg = messages[-1]
-            if isinstance(last_msg, AIMessage) and getattr(last_msg, "tool_calls", None):
+            if isinstance(last_msg, AIMessage) and getattr(
+                last_msg, "tool_calls", None
+            ):
                 return "tools"
 
         # Fallback (shouldn't happen in normal flow, but default to human_input to prevent silent failures)

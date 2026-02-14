@@ -311,7 +311,7 @@ def _parse_markdown_to_sections(content: str) -> list[dict[str, Any]]:
             para_lines.append(lines[i])
             i += 1
 
-        para_text = " ".join([l.strip() for l in para_lines]).strip()
+        para_text = " ".join([line.strip() for line in para_lines]).strip()
         if para_text:
             sections.append(
                 {
@@ -388,13 +388,19 @@ def tools_node(state: DocumentState) -> DocumentState:
         if isinstance(msg, ToolMessage):
             # Extract checkpoint_id from create_checkpoint result
             if msg.name == "create_checkpoint" and msg.content:
-                extracted_checkpoint_id = msg.content if isinstance(msg.content, str) else str(msg.content)
+                extracted_checkpoint_id = (
+                    msg.content if isinstance(msg.content, str) else str(msg.content)
+                )
 
             # Extract pending_question from request_human_input result
             elif msg.name == "request_human_input" and msg.content:
                 # Don't overwrite if agent already set it
                 if not extracted_pending_question:
-                    extracted_pending_question = msg.content if isinstance(msg.content, str) else str(msg.content)
+                    extracted_pending_question = (
+                        msg.content
+                        if isinstance(msg.content, str)
+                        else str(msg.content)
+                    )
 
     # Merge and return updated state
     return cast(
