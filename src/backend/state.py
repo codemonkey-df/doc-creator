@@ -39,6 +39,21 @@ class ImageRefResult(TypedDict):
     source_file: str
 
 
+class MissingRefDetail(TypedDict):
+    """Detail of a missing image reference for placeholder insertion (Story 3.4).
+
+    Used to track which input file contains each missing reference, so that
+    insert_placeholder() can target the correct file when user chooses "skip".
+
+    Attributes:
+        original_path: Path as it appeared in markdown.
+        source_file: Input filename where the reference was found.
+    """
+
+    original_path: str
+    source_file: str
+
+
 class DocumentState(TypedDict, total=False):
     """State passed through the document generation workflow.
 
@@ -61,6 +76,7 @@ class DocumentState(TypedDict, total=False):
     retry_count: int
     found_image_refs: list[ImageRefResult]
     missing_references: Annotated[list[str], operator.add]
+    missing_ref_details: list[MissingRefDetail]
     user_decisions: dict[str, str]
     pending_question: str
     status: Literal[
@@ -87,10 +103,10 @@ def build_initial_state(session_id: str, input_files: list[str]) -> DocumentStat
     All keys the graph expects are set (no key missing when scan_assets runs).
     Defaults: current_file_index=0, current_chapter=0, conversion_attempts=0,
     retry_count=0, last_checkpoint_id="", document_outline=[], found_image_refs=[],
-    missing_references=[], user_decisions={}, pending_question="", status="scanning_assets",
-    messages=[], temp_md_path="", structure_json_path="", output_docx_path="",
-    last_error="", error_type="", validation_passed=False, validation_issues=[],
-    generation_complete=False.
+    missing_references=[], missing_ref_details=[], user_decisions={}, pending_question="",
+    status="scanning_assets", messages=[], temp_md_path="", structure_json_path="",
+    output_docx_path="", last_error="", error_type="", validation_passed=False,
+    validation_issues=[], generation_complete=False.
 
     Args:
         session_id: UUID from SessionManager.create().
@@ -115,6 +131,7 @@ def build_initial_state(session_id: str, input_files: list[str]) -> DocumentStat
         "retry_count": 0,
         "found_image_refs": [],
         "missing_references": [],
+        "missing_ref_details": [],
         "user_decisions": {},
         "pending_question": "",
         "status": "scanning_assets",

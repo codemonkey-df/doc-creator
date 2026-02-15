@@ -345,3 +345,208 @@ def apply_asset_scan_results(
     )
 
     return summary
+
+
+def insert_placeholder(
+    session_path: Path,
+    image_identifier: str,
+    target_file: str,
+) -> str:
+    """
+    Replace image markdown with canonical placeholder for missing images.
+
+    AC3.4.3: When user skips a missing image, insert canonical placeholder
+    `**[Image Missing: {basename}]**` in the target file to allow document
+    generation to continue.
+
+    AC3.4.2: Placeholders applied to input files (so agent never sees broken ref).
+    Supports temp_output.md for error-pipeline use.
+
+    Args:
+        session_path: Path to session root
+        image_identifier: Original path as in markdown (e.g., "image.png" or "path/to/image.png")
+        target_file: Relative path from session (e.g., "inputs/doc.md" or "temp_output.md")
+
+    Returns:
+        Confirmation message
+
+    Raises:
+        OSError: If target_file not found or permission denied
+        UnicodeDecodeError: If file not UTF-8
+    """
+    file_path = session_path / target_file
+
+    if not file_path.exists():
+        logger.error(
+            "Target file not found for placeholder insertion: %s",
+            target_file,
+        )
+        raise OSError(f"Target file not found: {target_file}")
+
+    try:
+        # Read target file with UTF-8 encoding, detect line endings
+        file_bytes = file_path.read_bytes()
+        has_crlf = b"\r\n" in file_bytes
+
+        content = file_bytes.decode("utf-8")
+
+        # Extract basename for placeholder
+        basename = Path(image_identifier).name
+
+        # Find and replace markdown image ref matching image_identifier
+        # Pattern: ![anything](image_identifier)
+        # Escape special regex chars in image_identifier
+        escaped_id = re.escape(image_identifier)
+        pattern = rf"!\[([^\]]*)\]\(\s*{escaped_id}\s*\)"
+
+        new_content = re.sub(pattern, f"**[Image Missing: {basename}]**", content)
+
+        if new_content == content:
+            logger.warning(
+                "No matching image ref found for placeholder: %s in %s",
+                image_identifier,
+                target_file,
+            )
+        else:
+            # Write back in-place with UTF-8, preserving line endings
+            if has_crlf:
+                # Normalize to LF first, then convert back to CRLF
+                content_lf = new_content.replace("\r\n", "\n")
+                content_crlf = content_lf.replace("\n", "\r\n")
+                file_path.write_bytes(content_crlf.encode("utf-8"))
+            else:
+                # Write as-is (already LF or no line ending normalization)
+                file_path.write_text(new_content, encoding="utf-8")
+
+        logger.info(
+            "Placeholder inserted for %s in %s",
+            image_identifier,
+            target_file,
+        )
+
+        return f"Placeholder inserted for {image_identifier} in {target_file}"
+
+    except UnicodeDecodeError:
+        logger.error(
+            "Failed to read/write file (encoding error): %s",
+            target_file,
+            exc_info=True,
+        )
+        raise
+
+
+def handle_upload_decision(
+    session_path: Path,
+    upload_path: str,
+    image_identifier: str,
+    source_file: str,
+    allowed_base_path: Path | None = None,
+) -> str:
+    """
+    Validate uploaded file, copy to assets, update ref in source_file.
+
+    AC3.4.6: Upload path must be validated (no path escape). User-provided
+    files are copied to session assets/ and refs are updated to point to
+    session-local paths.
+
+    AC3.4.4: Returns path for markdown ref so downstream can use it.
+
+    Args:
+        session_path: Session root
+        upload_path: Absolute path to uploaded file (from caller)
+        image_identifier: Original path in markdown (e.g., "missing.png")
+        source_file: Input file containing ref (relative to session, e.g., "inputs/doc.md")
+        allowed_base_path: Optional base for path validation (if None, only basic checks)
+
+    Returns:
+        Confirmation message with relative path for markdown
+
+    Raises:
+        ValueError: If upload_path outside allowed base, is directory, or invalid
+        OSError: If file not readable or source_file not found
+    """
+    try:
+        # Validate upload_path
+        upload_full_path = Path(upload_path).resolve()
+
+        # Check if path is a directory
+        if upload_full_path.is_dir():
+            raise ValueError(f"Upload path must be a file, not directory: {upload_path}")
+
+        # Check if path exists and is readable
+        if not upload_full_path.exists():
+            raise ValueError(f"Upload file not found: {upload_path}")
+
+        if not upload_full_path.is_file():
+            raise ValueError(f"Upload path is not a regular file: {upload_path}")
+
+        # Validate against allowed_base_path if provided
+        if allowed_base_path:
+            allowed_base = allowed_base_path.resolve()
+            try:
+                # Check if upload path is relative to allowed base
+                upload_full_path.relative_to(allowed_base)
+            except ValueError:
+                logger.error(
+                    "Upload path outside allowed base: %s not under %s",
+                    upload_full_path,
+                    allowed_base,
+                )
+                raise ValueError(
+                    "Upload path is outside allowed base directory"
+                ) from None
+
+        # Check file is readable
+        if not upload_full_path.stat().st_mode & 0o400:
+            raise ValueError(f"Upload file is not readable: {upload_path}")
+
+        # Step 1: Copy file to session assets/
+        assets_dir = session_path / "assets"
+        basename = upload_full_path.name
+        dest_path = assets_dir / basename
+
+        if dest_path.exists():
+            logger.info(
+                "Overwriting existing asset: %s",
+                basename,
+            )
+
+        shutil.copy2(upload_full_path, dest_path)
+        logger.info(
+            "Uploaded file copied to assets: %s → assets/%s",
+            upload_full_path,
+            basename,
+        )
+
+        # Step 2: Update markdown ref in source_file
+        input_file_path = session_path / source_file
+
+        if not input_file_path.exists():
+            raise OSError(f"Source file not found for ref update: {source_file}")
+
+        # Read input file
+        content = input_file_path.read_text(encoding="utf-8")
+
+        # Rewrite ref using existing helper (reuses line ending preservation logic)
+        new_content = rewrite_refs_in_content(content, image_identifier, basename)
+
+        # Write back in-place (preserving encoding)
+        input_file_path.write_text(new_content, encoding="utf-8")
+
+        logger.info(
+            "Markdown ref updated in %s: %s → ./assets/%s",
+            source_file,
+            image_identifier,
+            basename,
+        )
+
+        return f"Uploaded file copied to assets/{basename}"
+
+    except (OSError, ValueError) as e:
+        logger.error(
+            "Failed to handle upload decision for %s: %s",
+            image_identifier,
+            e,
+            exc_info=True,
+        )
+        raise

@@ -23,7 +23,7 @@ Story 3.1, 3.2: scan_assets extracts and classifies image refs, then copies foun
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
@@ -31,7 +31,7 @@ from langgraph.graph import END, START, StateGraph
 from backend.agent import agent_node as agent_node_impl
 from backend.graph_nodes import parse_to_json_node, tools_node, validate_md_node
 from backend.routing import route_after_tools
-from backend.state import DocumentState, ImageRefResult
+from backend.state import DocumentState, ImageRefResult, MissingRefDetail
 from backend.utils.asset_handler import apply_asset_scan_results
 from backend.utils.image_scanner import extract_image_refs, resolve_image_path
 from backend.utils.session_manager import SessionManager
@@ -81,6 +81,7 @@ def _scan_assets_impl(
 
     found_refs: list[ImageRefResult] = []
     missing_refs: list[str] = []
+    missing_ref_details: list[MissingRefDetail] = []  # For Story 3.4: track source_file
 
     # Scan each input file
     for filename in input_files:
@@ -120,6 +121,9 @@ def _scan_assets_impl(
             if resolved is None:
                 # URL or missing
                 missing_refs.append(original_path)
+                missing_ref_details.append(
+                    {"original_path": original_path, "source_file": filename}
+                )
                 missing_count += 1
                 logger.info(
                     "image_ref_missing",
@@ -185,6 +189,7 @@ def _scan_assets_impl(
         **state,
         "found_image_refs": found_refs,
         "missing_references": missing_refs,
+        "missing_ref_details": missing_ref_details,
     }
 
     if missing_refs:
@@ -216,6 +221,135 @@ def _scan_assets_impl(
 def _human_input_node(state: DocumentState) -> DocumentState:
     """Stub: return state unchanged. After resume, entry injects user_decisions."""
     return state
+
+
+def _apply_user_decisions_node(
+    state: DocumentState, session_manager: SessionManager | None = None
+) -> DocumentState:
+    """Apply user decisions for missing image references (Story 3.4).
+
+    After human-in-the-loop interruption, processes user_decisions:
+    - "skip": Inserts canonical placeholder `**[Image Missing: {basename}]**` in input file
+    - upload path: Copies uploaded file to session assets, updates markdown ref
+
+    AC3.4.4-3.4.5: Skip → placeholder, Upload → copy+update, clear missing_references,
+    set status="processing", route to agent.
+
+    Args:
+        state: DocumentState with user_decisions populated by entry (or caller)
+        session_manager: Optional SessionManager for DI
+
+    Returns:
+        Updated state with decisions applied, missing_references cleared, pending_question cleared
+    """
+    sm = session_manager if session_manager is not None else SessionManager()
+
+    session_id = state.get("session_id")
+    if not session_id:
+        logger.warning("No session_id in state for apply_user_decisions_node")
+        return state
+
+    session_path = sm.get_path(session_id)
+    user_decisions = state.get("user_decisions", {})
+    missing_ref_details = state.get("missing_ref_details", [])
+
+    if not user_decisions:
+        logger.debug("No user_decisions to apply, returning state unchanged")
+        return state
+
+    from backend.utils.asset_handler import handle_upload_decision, insert_placeholder
+
+    # Build a map of original_path → source_file for quick lookup
+    ref_details_map = {
+        detail["original_path"]: detail["source_file"]
+        for detail in missing_ref_details
+    }
+
+    # Process each decision
+    for original_path, decision in user_decisions.items():
+        # Find source_file for this ref
+        source_file = ref_details_map.get(original_path)
+
+        if decision == "skip":
+            # Insert placeholder for skipped image
+            try:
+                if source_file:
+                    target_file = f"inputs/{source_file}"
+                else:
+                    # Fallback: try all input files (less efficient but handles missing metadata)
+                    logger.warning(
+                        "No source_file found for %s, skipping placeholder insertion",
+                        original_path,
+                    )
+                    continue
+
+                insert_placeholder(session_path, original_path, target_file)
+                logger.info(
+                    "Placeholder inserted for %s in %s",
+                    original_path,
+                    target_file,
+                )
+
+            except Exception as e:
+                logger.warning(
+                    "Failed to insert placeholder for %s: %s",
+                    original_path,
+                    e,
+                )
+                continue
+
+        else:
+            # Upload decision: decision value is the upload path
+            try:
+                if not source_file:
+                    logger.warning(
+                        "No source_file found for uploaded ref %s",
+                        original_path,
+                    )
+                    continue
+
+                target_file = f"inputs/{source_file}"
+
+                handle_upload_decision(
+                    session_path,
+                    decision,
+                    original_path,
+                    target_file,
+                    allowed_base_path=None,
+                )
+                logger.info(
+                    "Uploaded file processed for %s in %s",
+                    original_path,
+                    target_file,
+                )
+
+            except Exception as e:
+                logger.warning(
+                    "Failed to handle upload decision for %s: %s",
+                    original_path,
+                    e,
+                )
+                continue
+
+    # Clear decision state and set status for agent re-entry
+    new_state: DocumentState = cast(
+        DocumentState,
+        {
+            **state,
+            "missing_references": [],
+            "missing_ref_details": [],
+            "pending_question": "",
+            "user_decisions": {},
+            "status": "processing",
+        },
+    )
+
+    logger.info(
+        "User decisions applied: processed %d decisions, status set to processing",
+        len(user_decisions),
+    )
+
+    return new_state
 
 
 def _agent_node(state: DocumentState) -> DocumentState:
@@ -254,6 +388,10 @@ def create_document_workflow(
     # Add all nodes
     workflow.add_node("scan_assets", scan_assets_node)
     workflow.add_node("human_input", _human_input_node)
+    workflow.add_node(
+        "apply_user_decisions",
+        lambda state: _apply_user_decisions_node(state, sm),
+    )
     workflow.add_node("agent", _agent_node)
     workflow.add_node("tools", tools_node)
     workflow.add_node("validate_md", validate_md_node)
@@ -270,8 +408,11 @@ def create_document_workflow(
         {"human_input": "human_input", "agent": "agent"},
     )
 
-    # Edge: human_input → agent (after interrupt resolved, resume to agent)
-    workflow.add_edge("human_input", "agent")
+    # Edge: human_input → apply_user_decisions (after interrupt resolved, process decisions)
+    workflow.add_edge("human_input", "apply_user_decisions")
+
+    # Edge: apply_user_decisions → agent (after decisions applied, resume to agent)
+    workflow.add_edge("apply_user_decisions", "agent")
 
     # Conditional edge 2: agent → human_input | tools (interrupt point 2)
     # Route to tools if agent generated tool_calls, otherwise route to human_input if pending_question set
