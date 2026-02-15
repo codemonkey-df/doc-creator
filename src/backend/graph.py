@@ -1,4 +1,4 @@
-"""LangGraph workflow for document generation (Stories 1.4, 2.1-2.5).
+"""LangGraph workflow for document generation (Stories 1.4, 2.1-2.5, 3.1-3.2).
 
 Story 1.4, 2.1: START → scan_assets → agent → END
   Session not created in graph; entry provides session_id and input_files.
@@ -14,6 +14,10 @@ Story 2.5: Wire agent ↔ tools loop with routing.
   - validate_md: run markdownlint, return to agent if issues
   - parse_to_json: write structure.json stub for conversion epic
   - route_after_tools: priority (pending_question > checkpoint > complete > agent)
+
+Story 3.1, 3.2: scan_assets extracts and classifies image refs, then copies found images
+  to assets/ and rewrites refs in input files to use ./assets/basename paths (in-place).
+  Missing refs trigger human_input for resolution (Story 3.4).
 """
 
 from __future__ import annotations
@@ -29,6 +33,7 @@ from backend.agent import agent_node as agent_node_impl
 from backend.graph_nodes import parse_to_json_node, tools_node, validate_md_node
 from backend.routing import route_after_tools
 from backend.state import DocumentState, ImageRefResult
+from backend.utils.asset_handler import apply_asset_scan_results
 from backend.utils.image_scanner import extract_image_refs, resolve_image_path
 from backend.utils.session_manager import SessionManager
 from backend.utils.settings import AssetScanSettings
@@ -41,13 +46,21 @@ def _scan_assets_impl(
 ) -> DocumentState:
     """Scan input files for image references, resolve paths, and classify found/missing (Story 3.1).
 
-    Implements AC3.1.1-3.1.6:
+    Then copy found images to session assets/ and rewrite refs in input files (Story 3.2).
+
+    Story 3.1 - Implements AC3.1.1-3.1.6:
     1. Extract markdown image refs: ![alt](path)
     2. Classify each path: URL (skip), relative (resolve to input dir), absolute (validate under base)
     3. Check existence: found vs missing
     4. Track source_file for each ref (for Story 3.4 placeholder targeting)
     5. Populate state: found_image_refs, missing_references, pending_question, status
     6. Log per-file and per-ref events
+
+    Story 3.2 - Implements AC3.2.1-3.2.6:
+    - Copy found images to session/assets/ (destination = basename; last-copy-wins on collisions)
+    - Rewrite refs in input files: ![alt](original_path) → ![alt](./assets/basename); in-place
+    - Preserve UTF-8 encoding and line endings (CRLF/LF)
+    - Log all copy and rewrite operations
 
     Args:
         state: DocumentState with session_id and input_files
@@ -144,6 +157,27 @@ def _scan_assets_impl(
                 "missing": missing_count,
             },
         )
+
+    # Step 2: Copy found images to assets/ and rewrite refs in input files (Story 3.2)
+    # AC3.2.1-3.2.6: Copy images, rewrite refs to ./assets/basename in input files (in-place)
+    if found_refs:
+        try:
+            asset_results = apply_asset_scan_results(session_path, found_refs)
+            logger.info(
+                "asset_scan_results_applied",
+                extra={
+                    "session_id": session_id,
+                    "copied": asset_results.get("copied", 0),
+                    "rewritten": asset_results.get("rewritten", 0),
+                },
+            )
+        except Exception as e:
+            logger.error(
+                "Failed to apply asset scan results: %s",
+                e,
+                exc_info=True,
+            )
+            # Continue anyway; refs might not have been copied but scan can continue
 
     # Update state
     new_state: DocumentState = {
