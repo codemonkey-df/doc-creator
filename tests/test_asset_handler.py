@@ -12,7 +12,6 @@ Tests cover:
 
 import logging
 from pathlib import Path
-from typing import Generator
 
 import pytest
 
@@ -103,7 +102,10 @@ class TestCopyFoundImages:
     """Tests for copy_found_images function."""
 
     def test_copy_single_image_success(
-        self, temp_session_path: Path, temp_images_dir: Path, caplog_handler: pytest.LogCaptureFixture
+        self,
+        temp_session_path: Path,
+        temp_images_dir: Path,
+        caplog_handler: pytest.LogCaptureFixture,
     ) -> None:
         """GIVEN single found image ref / WHEN copied / THEN file in assets and logged."""
         found_refs = [
@@ -118,7 +120,10 @@ class TestCopyFoundImages:
 
         assert result == {"./diagram.png": "diagram.png"}
         assert (temp_session_path / "assets" / "diagram.png").exists()
-        assert "copied" in caplog_handler.text.lower() or "copy" in caplog_handler.text.lower()
+        assert (
+            "copied" in caplog_handler.text.lower()
+            or "copy" in caplog_handler.text.lower()
+        )
 
     def test_copy_multiple_images(
         self, temp_session_path: Path, temp_images_dir: Path
@@ -144,7 +149,10 @@ class TestCopyFoundImages:
         assert (temp_session_path / "assets" / "screenshot.jpg").exists()
 
     def test_copy_duplicate_basename_last_wins(
-        self, temp_session_path: Path, tmp_path: Path, caplog_handler: pytest.LogCaptureFixture
+        self,
+        temp_session_path: Path,
+        tmp_path: Path,
+        caplog_handler: pytest.LogCaptureFixture,
     ) -> None:
         """GIVEN multiple refs to different sources with same basename / WHEN copied / THEN last wins."""
         # Create two different image sources with same basename
@@ -179,7 +187,10 @@ class TestCopyFoundImages:
 
         # Last copy (version2) should be in assets
         assert (temp_session_path / "assets" / "image.png").read_text() == "version2"
-        assert "overwrite" in caplog_handler.text.lower() or "collision" in caplog_handler.text.lower()
+        assert (
+            "overwrite" in caplog_handler.text.lower()
+            or "collision" in caplog_handler.text.lower()
+        )
 
     def test_copy_nonexistent_source_skipped(
         self, temp_session_path: Path, caplog_handler: pytest.LogCaptureFixture
@@ -200,9 +211,7 @@ class TestCopyFoundImages:
         # Result may be empty or contain None mapping (depends on implementation)
         assert len(result) <= 1
 
-    def test_copy_empty_found_refs(
-        self, temp_session_path: Path
-    ) -> None:
+    def test_copy_empty_found_refs(self, temp_session_path: Path) -> None:
         """GIVEN empty found refs list / WHEN copied / THEN no copies, empty result."""
         found_refs: list[ImageRefResult] = []
 
@@ -285,15 +294,15 @@ Code block: ./diagram.png"""
         result = rewrite_refs_in_content(content, "./diagram.png", "diagram.png")
 
         # Only the image ref should be rewritten
-        lines = [l.strip() for l in result.split("\n") if l.strip()]
+        lines = [line.strip() for line in result.split("\n") if line.strip()]
 
         # First line with text mention should NOT be rewritten
-        text_lines = [l for l in lines if "Some text mentions" in l]
+        text_lines = [line for line in lines if "Some text mentions" in line]
         assert len(text_lines) > 0
         assert "./diagram.png" in text_lines[0]
 
         # Image syntax line SHOULD be rewritten
-        image_lines = [l for l in lines if "![" in l]
+        image_lines = [line for line in lines if "![" in line]
         assert len(image_lines) > 0
         assert "./assets/diagram.png" in image_lines[0]
 
@@ -392,9 +401,7 @@ class TestRewriteInputFiles:
         assert "doc.md" in result
         assert result["doc.md"] >= 2  # At least 2 refs rewritten
 
-    def test_rewrite_multiple_files(
-        self, temp_session_path: Path
-    ) -> None:
+    def test_rewrite_multiple_files(self, temp_session_path: Path) -> None:
         """GIVEN multiple input files with refs / WHEN rewritten / THEN all updated correctly."""
         # Create two input files
         file1 = temp_session_path / "inputs" / "doc1.md"
@@ -421,7 +428,7 @@ class TestRewriteInputFiles:
 
         copy_results = {"./image.png": "image.png"}
 
-        result = rewrite_input_files(temp_session_path, found_refs, copy_results)
+        _ = rewrite_input_files(temp_session_path, found_refs, copy_results)
 
         # Both files should be updated
         assert file1.read_text().count("./assets/image.png") == 1
@@ -452,9 +459,7 @@ class TestRewriteInputFiles:
         assert "中文" in updated
         assert "émojis 🎉" in updated
 
-    def test_rewrite_preserves_line_endings_lf(
-        self, temp_session_path: Path
-    ) -> None:
+    def test_rewrite_preserves_line_endings_lf(self, temp_session_path: Path) -> None:
         """GIVEN file with LF line endings / WHEN rewritten / THEN LF preserved."""
         input_file = temp_session_path / "inputs" / "doc.md"
         content = "Line 1\nLine 2 with ![image](./image.png)\nLine 3\n"
@@ -477,9 +482,7 @@ class TestRewriteInputFiles:
         assert b"\r\n" not in updated_bytes  # No CRLF
         assert b"\n" in updated_bytes  # Has LF
 
-    def test_rewrite_preserves_line_endings_crlf(
-        self, temp_session_path: Path
-    ) -> None:
+    def test_rewrite_preserves_line_endings_crlf(self, temp_session_path: Path) -> None:
         """GIVEN file with CRLF line endings / WHEN rewritten / THEN CRLF preserved."""
         input_file = temp_session_path / "inputs" / "doc.md"
         # Create content with CRLF
@@ -504,9 +507,7 @@ class TestRewriteInputFiles:
         # After rewrite, content should still be valid
         assert b"./assets/image.png" in updated_bytes
 
-    def test_rewrite_nonexistent_file_skipped(
-        self, temp_session_path: Path
-    ) -> None:
+    def test_rewrite_nonexistent_file_skipped(self, temp_session_path: Path) -> None:
         """GIVEN ref to file that doesn't exist / WHEN rewrite / THEN skipped gracefully."""
         found_refs = [
             ImageRefResult(
@@ -524,9 +525,7 @@ class TestRewriteInputFiles:
         # File should not be in result (or have 0 rewrites)
         assert "nonexistent.md" not in result or result.get("nonexistent.md", 0) == 0
 
-    def test_rewrite_no_matching_refs_in_file(
-        self, temp_session_path: Path
-    ) -> None:
+    def test_rewrite_no_matching_refs_in_file(self, temp_session_path: Path) -> None:
         """GIVEN file without any refs / WHEN rewrite / THEN no changes, 0 count."""
         input_file = temp_session_path / "inputs" / "doc.md"
         original_content = "Just text, no images.\n"
@@ -549,9 +548,7 @@ class TestRewriteInputFiles:
         # Count should be 0
         assert result.get("doc.md", 0) == 0
 
-    def test_rewrite_idempotent_on_same_refs(
-        self, temp_session_path: Path
-    ) -> None:
+    def test_rewrite_idempotent_on_same_refs(self, temp_session_path: Path) -> None:
         """GIVEN same refs applied twice / WHEN rewritten / THEN result identical (idempotent)."""
         input_file = temp_session_path / "inputs" / "doc.md"
         original = "![Image](./image.png)"
@@ -654,7 +651,7 @@ class TestApplyAssetScanResults:
             ),
         ]
 
-        result = apply_asset_scan_results(temp_session_path, found_refs)
+        _ = apply_asset_scan_results(temp_session_path, found_refs)
 
         # Last version should be in assets
         assert (temp_session_path / "assets" / "image.png").read_text() == "version2"
@@ -663,9 +660,7 @@ class TestApplyAssetScanResults:
         updated = input_file.read_text()
         assert updated.count("./assets/image.png") == 2
 
-    def test_apply_empty_found_refs_no_op(
-        self, temp_session_path: Path
-    ) -> None:
+    def test_apply_empty_found_refs_no_op(self, temp_session_path: Path) -> None:
         """GIVEN empty found refs / WHEN applied / THEN no-op, assets empty."""
         found_refs: list[ImageRefResult] = []
 
@@ -723,12 +718,12 @@ class TestApplyAssetScanResults:
         ]
 
         # First application
-        result1 = apply_asset_scan_results(temp_session_path, found_refs)
+        _ = apply_asset_scan_results(temp_session_path, found_refs)
         content1 = input_file.read_text()
         assets1 = set((temp_session_path / "assets").iterdir())
 
         # Second application (same refs)
-        result2 = apply_asset_scan_results(temp_session_path, found_refs)
+        _ = apply_asset_scan_results(temp_session_path, found_refs)
         content2 = input_file.read_text()
         assets2 = set((temp_session_path / "assets").iterdir())
 

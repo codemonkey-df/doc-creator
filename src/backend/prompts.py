@@ -39,6 +39,17 @@ FORMATTING GUIDELINES:
 - Use **bold** for emphasis, *italic* for subtle emphasis
 - Create tables with proper markdown syntax
 
+ASSET HANDLING (FC014, Story 3.3):
+When you reference an image in your work or need to include one:
+- Use the copy_image(source_path) tool to copy the file to session assets/
+- Use the returned path in your markdown (e.g., ![My Diagram](./assets/diagram.png))
+- If the file is missing, copy_image returns **[Image Missing: filename.png]** (visible in output)
+- Always use the exact path returned by copy_image; do not modify it
+Example:
+  1. Call copy_image(source_path="./diagram.png")
+  2. Response: "./assets/diagram.png"
+  3. Use in markdown: ![Architecture Diagram](./assets/diagram.png)
+
 EXAMPLE OUTPUT:
 # Chapter 1: System Logs Analysis
 

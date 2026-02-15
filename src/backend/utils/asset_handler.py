@@ -155,7 +155,7 @@ def rewrite_refs_in_content(
         # Extract just the path part if title is present
         path_only = path_stripped
         for quote in ['"', "'"]:
-            space_quote = f' {quote}'
+            space_quote = f" {quote}"
             if space_quote in path_only:
                 path_only = path_only.split(space_quote)[0]
                 break
@@ -226,9 +226,7 @@ def rewrite_input_files(
         file_path = inputs_dir / source_file
 
         if not file_path.exists():
-            logger.warning(
-                "Input file not found, skipping rewrite: %s", source_file
-            )
+            logger.warning("Input file not found, skipping rewrite: %s", source_file)
             continue
 
         try:
@@ -283,9 +281,7 @@ def rewrite_input_files(
                 file_path.write_text(content, encoding="utf-8")
 
             rewrite_results[source_file] = rewrite_count
-            logger.info(
-                "Rewrote %d ref(s) in %s", rewrite_count, source_file
-            )
+            logger.info("Rewrote %d ref(s) in %s", rewrite_count, source_file)
 
         except (OSError, UnicodeDecodeError) as e:
             logger.warning(
@@ -330,9 +326,7 @@ def apply_asset_scan_results(
     copy_results = copy_found_images(session_path, found_image_refs)
 
     # Step 2: Rewrite input files
-    rewrite_results = rewrite_input_files(
-        session_path, found_image_refs, copy_results
-    )
+    rewrite_results = rewrite_input_files(session_path, found_image_refs, copy_results)
 
     # Summarize
     total_rewritten = sum(rewrite_results.values())

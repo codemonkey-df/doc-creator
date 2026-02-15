@@ -67,7 +67,7 @@ def extract_image_refs(content: str) -> list[str]:
         path = match.strip()
         # Find first space-quote combination
         for quote in ['"', "'"]:
-            space_quote = f' {quote}'
+            space_quote = f" {quote}"
             if space_quote in path:
                 path = path.split(space_quote)[0]
                 break

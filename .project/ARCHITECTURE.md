@@ -483,17 +483,25 @@ def validate_markdown(session_id: str) -> dict:
     else:
         return {"valid": False, "issues": json.loads(result.stdout)}
 
-@tool
 def copy_image(source_path: str, session_id: str) -> str:
-    """Copy image to assets (FC014)"""
-    src = Path(source_path)
-    if not src.exists():
-        return f"[PLACEHOLDER: {src.name}]"
-    
-    dst = Path(f"./docs/sessions/{session_id}/assets/{src.name}")
-    shutil.copy(src, dst)
-    
-    return f"./assets/{src.name}"
+    """Copy image file to session assets/ and return relative path or placeholder (FC014, Story 3.3).
+
+    Resolves relative paths from session inputs/, validates absolute paths against allowed base.
+    Returns './assets/{basename}' on success, or '**[Image Missing: {basename}]**' if missing/invalid.
+
+    Path validation:
+    - Relative paths: resolved to session inputs/ directory
+    - Absolute paths: validated against allowed_base_path (defaults to inputs dir)
+    - URLs (http://, https://): skipped (returns placeholder)
+    - Path traversal (.., /, \\): rejected (returns placeholder)
+
+    Args:
+        source_path: Path to image file (relative to session inputs/ or absolute)
+        session_id: Session ID (injected via tool factory, not from agent)
+
+    Returns:
+        './assets/{basename}' on success, or '**[Image Missing: {basename}]**' if missing/invalid
+    """
 ```
 
 ---

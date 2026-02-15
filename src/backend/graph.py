@@ -23,7 +23,6 @@ Story 3.1, 3.2: scan_assets extracts and classifies image refs, then copies foun
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Any
 
 from langgraph.checkpoint.memory import MemorySaver
@@ -76,7 +75,9 @@ def _scan_assets_impl(
 
     # Load asset scan settings (allowed_base_path, etc.)
     settings = AssetScanSettings()
-    allowed_base = settings.allowed_base_path if settings.allowed_base_path else inputs_dir
+    allowed_base = (
+        settings.allowed_base_path if settings.allowed_base_path else inputs_dir
+    )
 
     found_refs: list[ImageRefResult] = []
     missing_refs: list[str] = []

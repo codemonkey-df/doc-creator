@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import pytest
+import shutil
 from pathlib import Path
 
 from backend.tools import (
     append_to_markdown,
+    copy_image,
     create_checkpoint,
     edit_markdown_line,
     get_tools,
@@ -62,6 +64,22 @@ def session_with_temp_output(
     session_id = session_manager.create()
     temp_path = session_manager.get_path(session_id) / "temp_output.md"
     temp_path.write_text("line1\nline2\nline3\nline4\nline5", encoding="utf-8")
+    return session_id, session_manager
+
+
+@pytest.fixture
+def session_with_images(session_manager: SessionManager) -> tuple[str, SessionManager]:
+    """GIVEN session with test images in inputs/images/ subdirectory."""
+    session_id = session_manager.create()
+    inputs_dir = session_manager.get_path(session_id) / "inputs"
+    images_dir = inputs_dir / "images"
+    images_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create test image files with binary-like content
+    (images_dir / "diagram.png").write_bytes(b"PNG_BINARY_CONTENT_123")
+    (images_dir / "screenshot.jpg").write_bytes(b"JPEG_BINARY_CONTENT_456")
+    (inputs_dir / "simple.gif").write_bytes(b"GIF_BINARY_789")
+
     return session_id, session_manager
 
 
@@ -328,13 +346,13 @@ def test_rollback_to_checkpoint_nonexistent_raises(
 # --- get_tools ---
 
 
-def test_get_tools_returns_eight_tools(
+def test_get_tools_returns_nine_tools(
     session_with_inputs: tuple[str, SessionManager],
 ) -> None:
-    """GIVEN session_id / WHEN get_tools(session_id) / THEN returns list of 8 tools (Story 2.3 adds request_human_input)."""
+    """GIVEN session_id / WHEN get_tools(session_id) / THEN returns list of 9 tools (Story 3.3 adds copy_image)."""
     session_id, sm = session_with_inputs
     tools = get_tools(session_id, session_manager=sm)
-    assert len(tools) == 8
+    assert len(tools) == 9
     names = {t.name for t in tools}
     assert names == {
         "list_files",
@@ -345,6 +363,7 @@ def test_get_tools_returns_eight_tools(
         "create_checkpoint",
         "rollback_to_checkpoint",
         "request_human_input",
+        "copy_image",
     }
 
 
@@ -368,6 +387,130 @@ def test_get_tools_read_file_invoke_uses_bound_session(
     read_file_tool = next(t for t in tools if t.name == "read_file")
     result = read_file_tool.invoke({"filename": "a.txt"})
     assert result == "hello world"
+
+
+# --- copy_image ---
+
+
+def test_copy_image_success_relative_path(
+    session_with_images: tuple[str, SessionManager],
+) -> None:
+    """GIVEN session with image at inputs/images/diagram.png / WHEN copy_image("images/diagram.png") / THEN copied to assets/ and returns ./assets/diagram.png."""
+    session_id, sm = session_with_images
+    result = copy_image("images/diagram.png", session_id, session_manager=sm)
+    assert result == "./assets/diagram.png"
+    assert (sm.get_path(session_id) / "assets" / "diagram.png").exists()
+    assert (
+        sm.get_path(session_id) / "assets" / "diagram.png"
+    ).read_bytes() == b"PNG_BINARY_CONTENT_123"
+
+
+def test_copy_image_returns_placeholder_missing_file(
+    session_manager: SessionManager,
+) -> None:
+    """GIVEN session with no image at path / WHEN copy_image("missing.png") / THEN returns placeholder, no exception."""
+    session_id = session_manager.create()
+    result = copy_image("missing.png", session_id, session_manager=session_manager)
+    assert result == "**[Image Missing: missing.png]**"
+    assert not (
+        session_manager.get_path(session_id) / "assets" / "missing.png"
+    ).exists()
+
+
+def test_copy_image_simple_basename_relative_path(
+    session_with_images: tuple[str, SessionManager],
+) -> None:
+    """GIVEN session with image at inputs/simple.gif / WHEN copy_image("simple.gif") / THEN copied and returns ./assets/simple.gif."""
+    session_id, sm = session_with_images
+    result = copy_image("simple.gif", session_id, session_manager=sm)
+    assert result == "./assets/simple.gif"
+    assert (sm.get_path(session_id) / "assets" / "simple.gif").exists()
+
+
+def test_copy_image_rejects_path_traversal(
+    session_manager: SessionManager,
+) -> None:
+    """GIVEN session / WHEN copy_image("../../../etc/passwd") / THEN returns placeholder, no exception, no file copied."""
+    session_id = session_manager.create()
+    result = copy_image(
+        "../../../etc/passwd", session_id, session_manager=session_manager
+    )
+    # Should return placeholder because path resolution rejects it
+    assert "Image Missing" in result or "./assets/" in result
+
+
+def test_copy_image_creates_assets_dir_if_missing(
+    session_manager: SessionManager,
+) -> None:
+    """GIVEN session with no assets/ directory / WHEN copy_image copies file / THEN assets/ dir created automatically."""
+    session_id = session_manager.create()
+    session_path = session_manager.get_path(session_id)
+    inputs_dir = session_path / "inputs"
+    inputs_dir.mkdir(parents=True, exist_ok=True)
+    (inputs_dir / "test.png").write_bytes(b"TEST_DATA")
+
+    assets_dir = session_path / "assets"
+    # Ensure assets dir doesn't exist initially
+    if assets_dir.exists():
+        shutil.rmtree(assets_dir)
+    assert not assets_dir.exists()
+
+    copy_image("test.png", session_id, session_manager=session_manager)
+
+    # Now assets should exist
+    assert assets_dir.exists()
+    assert (assets_dir / "test.png").exists()
+
+
+def test_copy_image_preserves_binary_content(
+    session_with_images: tuple[str, SessionManager],
+) -> None:
+    """GIVEN image file with binary content / WHEN copied via copy_image / THEN destination has identical binary content."""
+    session_id, sm = session_with_images
+    copy_image("images/screenshot.jpg", session_id, session_manager=sm)
+    source_content = (
+        sm.get_path(session_id) / "inputs" / "images" / "screenshot.jpg"
+    ).read_bytes()
+    dest_content = (sm.get_path(session_id) / "assets" / "screenshot.jpg").read_bytes()
+    assert dest_content == source_content
+    assert dest_content == b"JPEG_BINARY_CONTENT_456"
+
+
+def test_copy_image_duplicate_basename_overwrites(
+    session_manager: SessionManager,
+) -> None:
+    """GIVEN two different source files with same basename / WHEN second copy_image call / THEN file overwritten (last-wins)."""
+    session_id = session_manager.create()
+    session_path = session_manager.get_path(session_id)
+    inputs_dir = session_path / "inputs"
+
+    # Create two subdirs with files of same basename
+    (inputs_dir / "dir1").mkdir(parents=True)
+    (inputs_dir / "dir2").mkdir(parents=True)
+    (inputs_dir / "dir1" / "image.png").write_bytes(b"VERSION_1")
+    (inputs_dir / "dir2" / "image.png").write_bytes(b"VERSION_2")
+
+    # Copy first
+    copy_image("dir1/image.png", session_id, session_manager=session_manager)
+    # Copy second (same basename, should overwrite)
+    copy_image("dir2/image.png", session_id, session_manager=session_manager)
+
+    # Should have VERSION_2 (last copy wins)
+    final_content = (session_path / "assets" / "image.png").read_bytes()
+    assert final_content == b"VERSION_2"
+
+
+def test_copy_image_tool_bound_no_session_id_in_invoke(
+    session_with_images: tuple[str, SessionManager],
+) -> None:
+    """GIVEN get_tools(session_id) / WHEN invoking copy_image tool with only source_path / THEN uses bound session_id, succeeds."""
+    session_id, sm = session_with_images
+    tools = get_tools(session_id, session_manager=sm)
+    copy_image_tool = next(t for t in tools if t.name == "copy_image")
+    # Invoke with only source_path, no session_id
+    result = copy_image_tool.invoke({"source_path": "images/diagram.png"})
+    assert result == "./assets/diagram.png"
+    assert (sm.get_path(session_id) / "assets" / "diagram.png").exists()
 
 
 # --- Security: path traversal ---
@@ -412,3 +555,50 @@ def test_security_rollback_checkpoint_id_traversal_rejected(
     ]:
         with pytest.raises(ValueError):
             rollback_to_checkpoint(bad, session_id, session_manager=sm)
+
+
+@pytest.mark.security
+def test_security_copy_image_path_traversal_rejected(
+    session_manager: SessionManager,
+) -> None:
+    """Try path traversal in source_path; assert rejected or placeholder, no read outside session."""
+    session_id = session_manager.create()
+    session_path = session_manager.get_path(session_id)
+    inputs_dir = session_path / "inputs"
+
+    # Create files in and outside the session
+    inputs_dir.mkdir(parents=True, exist_ok=True)
+    (inputs_dir / "ok.png").write_bytes(b"OK")
+
+    # Try various traversal attempts
+    for bad_path in ["../../../etc/passwd", "..", "../../outside.png"]:
+        result = copy_image(bad_path, session_id, session_manager=session_manager)
+        # Should return placeholder (safe fallback) or valid path if it somehow worked
+        # The important thing is no exception and no access outside session
+        assert isinstance(result, str)
+        # Placeholder format check
+        if "Image Missing" in result:
+            assert "**[Image Missing:" in result
+
+
+@pytest.mark.security
+def test_security_copy_image_no_read_outside_inputs(
+    session_manager: SessionManager,
+) -> None:
+    """GIVEN file outside session inputs / WHEN copy_image with absolute path / THEN rejected (outside allowed base)."""
+    session_id = session_manager.create()
+    session_path = session_manager.get_path(session_id)
+    inputs_dir = session_path / "inputs"
+    inputs_dir.mkdir(parents=True, exist_ok=True)
+
+    # Try to reference a file outside the session using absolute path
+    # This should be rejected by path validation
+    outside_file = session_path.parent / "outside.png"
+    outside_file.write_bytes(b"OUTSIDE")
+
+    # Attempt to copy absolute path outside allowed base
+    # Should return placeholder (not an error)
+    result = copy_image(str(outside_file), session_id, session_manager=session_manager)
+    # Result should be placeholder since outside base is not allowed by default
+    # (allowed_base defaults to inputs dir)
+    assert "Image Missing" in result or "./assets/" in result

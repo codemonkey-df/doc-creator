@@ -9,9 +9,7 @@ Tests cover:
 """
 
 import logging
-import os
 from pathlib import Path
-from typing import Generator
 
 import pytest
 
@@ -285,36 +283,25 @@ class TestResolveImagePath:
     def test_resolve_url_returns_none(self, temp_session_inputs: Path) -> None:
         """GIVEN URL path / WHEN resolved / THEN None (skip)."""
         result = resolve_image_path(
-            "https://example.com/image.png",
-            temp_session_inputs,
-            None
+            "https://example.com/image.png", temp_session_inputs, None
         )
         assert result is None
 
     def test_resolve_http_url_returns_none(self, temp_session_inputs: Path) -> None:
         """GIVEN HTTP URL / WHEN resolved / THEN None."""
         result = resolve_image_path(
-            "http://example.com/image.jpg",
-            temp_session_inputs,
-            None
+            "http://example.com/image.jpg", temp_session_inputs, None
         )
         assert result is None
 
     # --- Relative Path Tests ---
 
-    def test_resolve_relative_path_exists(
-        self,
-        temp_session_inputs: Path
-    ) -> None:
+    def test_resolve_relative_path_exists(self, temp_session_inputs: Path) -> None:
         """GIVEN relative path to existing file / WHEN resolved / THEN returns absolute path."""
         # Create test image
         (temp_session_inputs / "image.png").touch()
 
-        result = resolve_image_path(
-            "image.png",
-            temp_session_inputs,
-            None
-        )
+        result = resolve_image_path("image.png", temp_session_inputs, None)
 
         assert result is not None
         assert result.exists()
@@ -322,45 +309,30 @@ class TestResolveImagePath:
         assert result.name == "image.png"
 
     def test_resolve_relative_path_with_dot_slash(
-        self,
-        temp_session_inputs: Path
+        self, temp_session_inputs: Path
     ) -> None:
         """GIVEN relative path ./file / WHEN resolved / THEN returns absolute path."""
         (temp_session_inputs / "image.png").touch()
 
-        result = resolve_image_path(
-            "./image.png",
-            temp_session_inputs,
-            None
-        )
+        result = resolve_image_path("./image.png", temp_session_inputs, None)
 
         assert result is not None
         assert result.exists()
         assert result.name == "image.png"
 
-    def test_resolve_relative_path_nested(
-        self,
-        temp_session_inputs: Path
-    ) -> None:
+    def test_resolve_relative_path_nested(self, temp_session_inputs: Path) -> None:
         """GIVEN relative path to nested file / WHEN resolved / THEN correct."""
         # Create nested structure
         (temp_session_inputs / "images").mkdir()
         (temp_session_inputs / "images" / "diagram.png").touch()
 
-        result = resolve_image_path(
-            "./images/diagram.png",
-            temp_session_inputs,
-            None
-        )
+        result = resolve_image_path("./images/diagram.png", temp_session_inputs, None)
 
         assert result is not None
         assert result.exists()
         assert result.name == "diagram.png"
 
-    def test_resolve_relative_path_parent_dir(
-        self,
-        temp_session_inputs: Path
-    ) -> None:
+    def test_resolve_relative_path_parent_dir(self, temp_session_inputs: Path) -> None:
         """GIVEN relative path with .. / WHEN resolved / THEN correct if within base."""
         # Create structure: session/inputs and session/images/image.png
         session = temp_session_inputs.parent
@@ -371,7 +343,7 @@ class TestResolveImagePath:
         result = resolve_image_path(
             "../images/diagram.png",
             temp_session_inputs,
-            None  # No allowed_base restriction
+            None,  # No allowed_base restriction
         )
 
         assert result is not None
@@ -379,28 +351,19 @@ class TestResolveImagePath:
         assert result.name == "diagram.png"
 
     def test_resolve_relative_path_missing_file(
-        self,
-        temp_session_inputs: Path
+        self, temp_session_inputs: Path
     ) -> None:
         """GIVEN relative path to non-existent file / WHEN resolved / THEN None."""
-        result = resolve_image_path(
-            "nonexistent.png",
-            temp_session_inputs,
-            None
-        )
+        result = resolve_image_path("nonexistent.png", temp_session_inputs, None)
 
         assert result is None
 
     def test_resolve_relative_path_escapes_base_allowed(
-        self,
-        temp_session_inputs: Path,
-        temp_allowed_base: Path
+        self, temp_session_inputs: Path, temp_allowed_base: Path
     ) -> None:
         """GIVEN relative path escapes allowed_base / WHEN resolved / THEN None."""
         result = resolve_image_path(
-            "../../outside.png",
-            temp_session_inputs,
-            temp_allowed_base
+            "../../outside.png", temp_session_inputs, temp_allowed_base
         )
 
         # Should be None because escapes allowed_base
@@ -408,10 +371,7 @@ class TestResolveImagePath:
 
     # --- Absolute Path Tests ---
 
-    def test_resolve_absolute_path_under_base(
-        self,
-        temp_allowed_base: Path
-    ) -> None:
+    def test_resolve_absolute_path_under_base(self, temp_allowed_base: Path) -> None:
         """GIVEN absolute path under allowed_base / WHEN resolved / THEN returns path."""
         # Create image in allowed base
         (temp_allowed_base / "image.png").touch()
@@ -419,16 +379,14 @@ class TestResolveImagePath:
         result = resolve_image_path(
             str(temp_allowed_base / "image.png"),
             temp_allowed_base,  # input_file_dir (not used for absolute)
-            temp_allowed_base
+            temp_allowed_base,
         )
 
         assert result is not None
         assert result.exists()
 
     def test_resolve_absolute_path_outside_base(
-        self,
-        temp_allowed_base: Path,
-        tmp_path: Path
+        self, temp_allowed_base: Path, tmp_path: Path
     ) -> None:
         """GIVEN absolute path outside allowed_base / WHEN resolved / THEN None."""
         # Create image outside allowed base
@@ -439,23 +397,20 @@ class TestResolveImagePath:
         result = resolve_image_path(
             str(outside / "image.png"),
             outside,
-            temp_allowed_base  # Only allow inside this base
+            temp_allowed_base,  # Only allow inside this base
         )
 
         # Should be None because outside allowed_base
         assert result is None
 
-    def test_resolve_absolute_path_no_allowed_base(
-        self,
-        tmp_path: Path
-    ) -> None:
+    def test_resolve_absolute_path_no_allowed_base(self, tmp_path: Path) -> None:
         """GIVEN absolute path with no allowed_base restriction / WHEN resolved / THEN returns."""
         (tmp_path / "image.png").touch()
 
         result = resolve_image_path(
             str(tmp_path / "image.png"),
             tmp_path,
-            None  # No restriction
+            None,  # No restriction
         )
 
         assert result is not None
@@ -463,10 +418,7 @@ class TestResolveImagePath:
 
     # --- Security Tests ---
 
-    def test_resolve_symlink_within_base(
-        self,
-        temp_session_inputs: Path
-    ) -> None:
+    def test_resolve_symlink_within_base(self, temp_session_inputs: Path) -> None:
         """GIVEN symlink pointing within allowed base / WHEN resolved / THEN accepted."""
         # Create target file
         target = temp_session_inputs / "target.png"
@@ -479,18 +431,12 @@ class TestResolveImagePath:
         except OSError:
             pytest.skip("Symlinks not supported on this system")
 
-        result = resolve_image_path(
-            str(symlink),
-            temp_session_inputs,
-            None
-        )
+        result = resolve_image_path(str(symlink), temp_session_inputs, None)
 
         assert result is not None
 
     def test_resolve_symlink_outside_base(
-        self,
-        temp_session_inputs: Path,
-        tmp_path: Path
+        self, temp_session_inputs: Path, tmp_path: Path
     ) -> None:
         """GIVEN symlink pointing outside base / WHEN resolved / THEN None (security)."""
         # Create target outside
@@ -509,16 +455,14 @@ class TestResolveImagePath:
         result = resolve_image_path(
             str(symlink),
             temp_session_inputs,
-            temp_session_inputs  # Only allow within inputs
+            temp_session_inputs,  # Only allow within inputs
         )
 
         # Should be None due to symlink escaping base
         assert result is None
 
     def test_resolve_path_traversal_attack(
-        self,
-        temp_session_inputs: Path,
-        tmp_path: Path
+        self, temp_session_inputs: Path, tmp_path: Path
     ) -> None:
         """GIVEN path with .. escaping base / WHEN resolved with allowed_base / THEN None."""
         # Create file outside
@@ -536,18 +480,14 @@ class TestResolveImagePath:
         result = resolve_image_path(
             prefix + "outside/secret.png",
             temp_session_inputs,
-            temp_session_inputs  # Only allow within inputs
+            temp_session_inputs,  # Only allow within inputs
         )
 
         assert result is None
 
     def test_resolve_empty_path(self, temp_session_inputs: Path) -> None:
         """GIVEN empty path string / WHEN resolved / THEN None."""
-        result = resolve_image_path(
-            "",
-            temp_session_inputs,
-            None
-        )
+        result = resolve_image_path("", temp_session_inputs, None)
         assert result is None
 
     def test_resolve_none_path(self, temp_session_inputs: Path) -> None:
@@ -558,7 +498,7 @@ class TestResolveImagePath:
             result = resolve_image_path(
                 None,  # type: ignore
                 temp_session_inputs,
-                None
+                None,
             )
             assert result is None
         except (TypeError, AttributeError):
@@ -575,8 +515,7 @@ class TestScanAssetsIntegration:
     """Integration tests for scan_assets behavior using image_scanner."""
 
     def test_extract_from_sample_markdown(
-        self,
-        sample_markdown_with_images: str
+        self, sample_markdown_with_images: str
     ) -> None:
         """GIVEN sample markdown with various refs / WHEN extracted / THEN all valid refs found.
 
@@ -597,9 +536,7 @@ class TestScanAssetsIntegration:
         assert "path.png" in refs  # From code block
 
     def test_extract_and_classify_mixed_refs(
-        self,
-        sample_markdown_with_images: str,
-        temp_session_inputs: Path
+        self, sample_markdown_with_images: str, temp_session_inputs: Path
     ) -> None:
         """GIVEN markdown with mixed refs / WHEN classified / THEN correct URL vs file."""
         refs = extract_image_refs(sample_markdown_with_images)
@@ -611,10 +548,7 @@ class TestScanAssetsIntegration:
         assert url_count == 1
         assert file_count == 5
 
-    def test_resolve_relative_refs_in_session(
-        self,
-        temp_session_inputs: Path
-    ) -> None:
+    def test_resolve_relative_refs_in_session(self, temp_session_inputs: Path) -> None:
         """GIVEN image refs in session inputs / WHEN resolved / THEN correct absolute paths."""
         # Create sample images
         (temp_session_inputs / "image.png").touch()
@@ -629,10 +563,7 @@ class TestScanAssetsIntegration:
         assert result1 is not None and result1.exists()
         assert result2 is not None and result2.exists()
 
-    def test_classify_found_and_missing(
-        self,
-        temp_session_inputs: Path
-    ) -> None:
+    def test_classify_found_and_missing(self, temp_session_inputs: Path) -> None:
         """GIVEN refs with some existing, some missing / WHEN classified / THEN correct split."""
         # Create only one image
         (temp_session_inputs / "found.png").touch()

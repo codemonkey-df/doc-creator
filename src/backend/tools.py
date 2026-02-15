@@ -19,6 +19,10 @@ from langchain_core.tools import StructuredTool
 if TYPE_CHECKING:
     from backend.utils.session_manager import SessionManager
 
+# Imports for copy_image (Story 3.3)
+from backend.utils.image_scanner import resolve_image_path
+from backend.utils.settings import AssetScanSettings
+
 logger = logging.getLogger(__name__)
 
 TEMP_OUTPUT_FILENAME = "temp_output.md"
@@ -225,6 +229,83 @@ def request_human_input(
     return str(question).strip()
 
 
+def copy_image(
+    source_path: str,
+    session_id: str,
+    session_manager: SessionManager | None = None,
+) -> str:
+    """Copy image to session assets/ and return relative path (Story 3.3, FC014).
+
+    Resolves relative paths from session inputs/, validates absolute paths against allowed base.
+    Returns a relative path string (e.g. "./assets/filename.png") on success.
+    If source file does not exist or path is invalid, returns canonical placeholder
+    "**[Image Missing: {basename}]**" so agent can insert it. No exception raised.
+
+    Path validation:
+    - Relative paths: resolved to session inputs/ directory
+    - Absolute paths: validated against allowed_base_path (defaults to inputs dir)
+    - URLs (http://, https://): skipped (returns placeholder)
+    - Path traversal (.., path separators): rejected (returns placeholder)
+
+    Args:
+        source_path: Path to image file (relative to session inputs/ or absolute)
+        session_id: Session ID (injected, not from agent)
+        session_manager: SessionManager instance (optional, defaults to singleton)
+
+    Returns:
+        ./assets/{basename} on success, or **[Image Missing: {basename}]** if invalid
+    """
+    try:
+        session_path = _session_path(session_id, session_manager)
+        inputs_dir = session_path / INPUTS_DIR
+
+        # Get allowed base path configuration (defaults to inputs dir)
+        settings = AssetScanSettings()
+        allowed_base = (
+            settings.allowed_base_path if settings.allowed_base_path else inputs_dir
+        )
+
+        # Resolve path using same rules as scan_assets (Story 3.1)
+        resolved = resolve_image_path(source_path, inputs_dir, allowed_base)
+
+        # If resolution failed (invalid/missing/URL), return placeholder
+        if resolved is None:
+            basename = Path(source_path).name or "image"
+            return f"**[Image Missing: {basename}]**"
+
+        # If file doesn't exist, return placeholder
+        if not resolved.exists():
+            basename = resolved.name
+            return f"**[Image Missing: {basename}]**"
+
+        # File exists and is valid: copy to assets/
+        assets_dir = session_path / "assets"
+        assets_dir.mkdir(parents=True, exist_ok=True)
+
+        basename = resolved.name
+        dest_path = assets_dir / basename
+
+        try:
+            shutil.copy2(resolved, dest_path)
+            logger.info("Image copied to assets: %s -> %s", source_path, basename)
+            return f"./assets/{basename}"
+        except (OSError, IOError) as e:
+            logger.warning("Failed to copy image %s: %s", source_path, e)
+            # On copy failure, return placeholder
+            return f"**[Image Missing: {basename}]**"
+
+    except Exception as e:
+        # Catch-all: return placeholder for any unexpected error
+        logger.error(
+            "Unexpected error in copy_image(%s, %s): %s",
+            source_path,
+            session_id,
+            e,
+        )
+        basename = Path(source_path).name or "image"
+        return f"**[Image Missing: {basename}]**"
+
+
 def get_tools(
     session_id: str,
     session_manager: SessionManager | None = None,
@@ -260,6 +341,9 @@ def get_tools(
 
     def _request_human_input(question: str) -> str:
         return request_human_input(question, session_id, session_manager=sm)
+
+    def _copy_image(source_path: str) -> str:
+        return copy_image(source_path, session_id, session_manager=sm)
 
     return [
         StructuredTool.from_function(
@@ -301,5 +385,14 @@ def get_tools(
             func=_request_human_input,
             name="request_human_input",
             description="Ask the user for input (FC006). Call when you find a missing external file reference or need the user to upload/skip. Pass the question to show the user. The workflow will pause for human input.",
+        ),
+        StructuredTool.from_function(
+            func=_copy_image,
+            name="copy_image",
+            description=(
+                "Copy image to session assets/ and return relative path (FC014). "
+                "Resolves relative paths from inputs/. Returns ./assets/{name} on "
+                "success, or **[Image Missing: {name}]** if missing/invalid."
+            ),
         ),
     ]
