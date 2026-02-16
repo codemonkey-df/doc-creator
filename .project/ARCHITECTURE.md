@@ -1934,6 +1934,40 @@ npm install -g markdownlint-cli
 markdownlint --version
 ```
 
+#### markdownlint-cli JSON Contract
+
+When running `markdownlint <path> --json`, the CLI outputs JSON to stdout. The output is an object where keys are file paths and values are arrays of issues.
+
+**Output Format:**
+```json
+{
+  "/path/to/file.md": [
+    {
+      "lineNumber": 45,
+      "ruleNames": ["MD001", "heading-increment"],
+      "ruleDescription": "Heading levels should only increment by one level at a time",
+      "errorDetail": "This level 2 heading jumps from level 1"
+    }
+  ]
+}
+```
+
+**ValidationIssue Schema (Internal):**
+```python
+class ValidationIssue(TypedDict, total=False):
+    line_number: int      # Mapped from lineNumber
+    rule: str            # First element from ruleNames
+    rule_description: str # Mapped from ruleDescription
+    message: str         # f"{rule_description} (line {line_number})"
+    error_detail: str    # Mapped from errorDetail
+```
+
+**Error Handling:**
+- **Missing CLI**: Returns synthetic issue with rule="markdownlint", rule_description="CLI not found"
+- **Timeout (>30s)**: Returns synthetic issue with rule_description="Validation timeout"
+- **JSON Parse Failure**: Returns synthetic issue with rule_description="JSON parse error"
+- **Missing temp_output.md**: Returns synthetic issue with rule_description="File not found"
+
 ---
 
 ## 8. Configuration

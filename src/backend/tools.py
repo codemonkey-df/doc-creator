@@ -23,22 +23,18 @@ if TYPE_CHECKING:
 from backend.utils.image_scanner import resolve_image_path
 from backend.utils.settings import AssetScanSettings
 
+# Import shared checkpoint helper (Story 4.4)
+from backend.utils.checkpoint import (
+    _session_path,
+    _validate_checkpoint_id,
+    restore_from_checkpoint,
+)
+
 logger = logging.getLogger(__name__)
 
 TEMP_OUTPUT_FILENAME = "temp_output.md"
 CHECKPOINTS_DIR = "checkpoints"
 INPUTS_DIR = "inputs"
-
-
-def _session_path(
-    session_id: str,
-    session_manager: SessionManager | None = None,
-) -> Path:
-    """Return session root path. Uses SessionManager.get_path(session_id)."""
-    from backend.utils.session_manager import SessionManager
-
-    sm = session_manager if session_manager is not None else SessionManager()
-    return sm.get_path(session_id)
 
 
 def _validate_filename(filename: str) -> None:
@@ -64,23 +60,6 @@ def _validate_label(label: str) -> str:
     if not sanitized:
         raise ValueError("Label must contain at least one alphanumeric or underscore")
     return sanitized
-
-
-def _validate_checkpoint_id(checkpoint_id: str, session_path: Path) -> Path:
-    """Require checkpoint_id as basename only; resolve under session and assert no escape. Raises ValueError."""
-    cid = checkpoint_id.strip() if checkpoint_id else ""
-    if not cid:
-        raise ValueError("Checkpoint ID must not be empty")
-    if "/" in cid or "\\" in cid:
-        raise ValueError("Checkpoint ID must be a basename (no path separators)")
-    if ".." in cid:
-        raise ValueError("Checkpoint ID must not contain '..'")
-    checkpoints_dir = session_path / CHECKPOINTS_DIR
-    resolved = (checkpoints_dir / cid).resolve()
-    session_resolved = session_path.resolve()
-    if not resolved.is_relative_to(session_resolved):
-        raise ValueError("Checkpoint path must be under session directory")
-    return resolved
 
 
 def list_files(
@@ -203,13 +182,21 @@ def rollback_to_checkpoint(
     session_id: str,
     session_manager: SessionManager | None = None,
 ) -> str:
-    """Copy checkpoint file back to temp_output.md (FC009). checkpoint_id must be basename only."""
+    """Copy checkpoint file back to temp_output.md (FC009). checkpoint_id must be basename only.
+
+    Uses shared restore_from_checkpoint helper (Story 4.4).
+    Raises ValueError for invalid checkpoint_id, FileNotFoundError for missing file.
+    """
     session_path = _session_path(session_id, session_manager)
-    src_path = _validate_checkpoint_id(checkpoint_id, session_path)
-    if not src_path.exists():
+    try:
+        _validate_checkpoint_id(checkpoint_id, session_path)
+    except ValueError:
+        raise
+
+    # Now attempt restoration
+    success = restore_from_checkpoint(session_id, checkpoint_id, session_manager)
+    if not success:
         raise FileNotFoundError(f"Checkpoint file not found: {checkpoint_id}")
-    dest_path = session_path / TEMP_OUTPUT_FILENAME
-    shutil.copy2(src_path, dest_path)
     return f"Restored from checkpoint {checkpoint_id}"
 
 

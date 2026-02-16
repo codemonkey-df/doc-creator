@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from backend.state import DocumentState
 
+MAX_FIX_ATTEMPTS = 3
+
 
 def route_after_tools(state: DocumentState) -> str:
     """Route after tools execute: agent | validate | human_input | complete.
@@ -45,3 +47,56 @@ def route_after_tools(state: DocumentState) -> str:
 
     # Check 4: Continue processing
     return "agent"
+
+
+def route_after_validation(state: DocumentState) -> str:
+    """Route after validation: checkpoint | agent (fix) | complete (max fixes exceeded).
+
+    Priority:
+    1. validation_passed=True → "checkpoint"
+    2. validation_passed=False AND fix_attempts < MAX_FIX_ATTEMPTS → "agent" (fix path)
+    3. validation_passed=False AND fix_attempts >= MAX_FIX_ATTEMPTS → "complete" (stop fix loop)
+
+    Also increments fix_attempts when routing to agent (fix).
+    """
+    if state.get("validation_passed"):
+        return "checkpoint"
+
+    fix_attempts = state.get("fix_attempts", 0)
+    if fix_attempts >= MAX_FIX_ATTEMPTS:
+        return "complete"  # Stop infinite fix loop
+
+    # Route to agent for fix
+    return "agent"
+
+
+def route_after_error(state: DocumentState) -> str:
+    """Route after error handler decides to retry or fail (Story 4.4).
+
+    Priority:
+    1. Has checkpoint AND retry_count < MAX_RETRY_ATTEMPTS → "rollback" (restore checkpoint, retry)
+    2. Otherwise → "complete" (fail gracefully)
+
+    Args:
+        state: DocumentState with last_error, error_type, last_checkpoint_id, retry_count
+
+    Returns:
+        One of: "rollback", "complete"
+    """
+    retry_count = state.get("retry_count", 0)
+    last_checkpoint_id = state.get("last_checkpoint_id", "")
+
+    # Route to rollback only if there's a checkpoint AND we haven't exceeded retry limit
+    if (
+        last_checkpoint_id
+        and last_checkpoint_id.strip()
+        and retry_count < MAX_RETRY_ATTEMPTS
+    ):
+        return "rollback"
+
+    # No checkpoint or max retries exceeded - proceed to complete (fail gracefully)
+    return "complete"
+
+
+# Max retry attempts for error handling
+MAX_RETRY_ATTEMPTS = 3

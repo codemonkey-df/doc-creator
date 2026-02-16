@@ -12,3 +12,6 @@ wheels/
 .prompts.md
 .claude
 .DS_Store
+.ruff*
+.pytest*
+docs/

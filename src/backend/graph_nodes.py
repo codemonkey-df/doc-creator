@@ -1,10 +1,13 @@
-"""Graph nodes for Story 2.5: validate_md, parse_to_json, tools_node.
+"""Graph nodes for Story 2.5: validate_md, parse_to_json, tools_node, checkpoint_node.
 
 AC2.5.3: validate_md node runs markdown validation (markdownlint) and sets
 validation_passed and validation_issues. Routes back to agent for fixes.
 
 AC2.5.4: parse_to_json stub reads temp_output.md, writes minimal structure.json,
 sets structure_json_path for downstream conversion epic.
+
+Story 4.1: checkpoint_node runs after validation passes, copies temp_output.md
+to checkpoints/{timestamp}_chapter_{n}.md with timestamp uniqueness.
 
 Custom tools_node updates state from tool results: sets last_checkpoint_id from
 create_checkpoint tool and pending_question from request_human_input tool.
@@ -14,19 +17,35 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import subprocess
+from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
-from backend.state import DocumentState
+from backend.state import DocumentState, ValidationIssue
 from backend.tools import get_tools
 from backend.utils.session_manager import SessionManager
+from backend.utils.checkpoint import restore_from_checkpoint
 
 logger = logging.getLogger(__name__)
 
-# Markdownlint JSON output field names
-MARKDOWNLINT_LINE_KEY = "lineNumber"
-MARKDOWNLINT_RULE_KEY = "ruleDescription"
+
+def normalize_markdownlint_issue(raw_issue: dict[str, Any]) -> ValidationIssue:
+    """Normalize markdownlint JSON to ValidationIssue."""
+    line_number = raw_issue.get("lineNumber", 0)
+    rule_names = raw_issue.get("ruleNames", [])
+    rule = rule_names[0] if rule_names else ""
+    rule_description = raw_issue.get("ruleDescription", "")
+    error_detail = raw_issue.get("errorDetail", "")
+
+    return ValidationIssue(
+        line_number=line_number,
+        rule=rule,
+        rule_description=rule_description,
+        message=f"{rule_description} (line {line_number})",
+        error_detail=error_detail,
+    )
 
 
 def validate_md_node(state: DocumentState) -> DocumentState:
@@ -60,7 +79,13 @@ def validate_md_node(state: DocumentState) -> DocumentState:
                 **state,
                 "validation_passed": False,
                 "validation_issues": [
-                    {"error": f"temp_output.md not found at {temp_md_path}"}
+                    ValidationIssue(
+                        line_number=0,
+                        rule="markdownlint",
+                        rule_description="File not found",
+                        message=f"temp_output.md not found at {temp_md_path}",
+                        error_detail=f"temp_output.md not found at {temp_md_path}",
+                    )
                 ],
             },
         )
@@ -76,7 +101,14 @@ def validate_md_node(state: DocumentState) -> DocumentState:
 
         if result.returncode == 0:
             # No errors
-            logger.info("Markdown validation passed for session %s", session_id)
+            logger.info(
+                "validation_ran",
+                extra={
+                    "session_id": session_id,
+                    "passed": True,
+                    "issue_count": 0,
+                },
+            )
             return cast(
                 DocumentState,
                 {
@@ -93,25 +125,44 @@ def validate_md_node(state: DocumentState) -> DocumentState:
             logger.warning(
                 "Failed to parse markdownlint JSON output: %s", result.stdout
             )
-            issues = [{"error": "Failed to parse markdownlint output"}]
+            logger.info(
+                "validation_ran",
+                extra={
+                    "session_id": session_id,
+                    "passed": False,
+                    "issue_count": 1,
+                },
+            )
+            return cast(
+                DocumentState,
+                {
+                    **state,
+                    "validation_passed": False,
+                    "validation_issues": [
+                        ValidationIssue(
+                            line_number=0,
+                            rule="markdownlint",
+                            rule_description="JSON parse error",
+                            message="Failed to parse markdownlint output",
+                            error_detail=result.stdout[:500] if result.stdout else "",
+                        )
+                    ],
+                },
+            )
 
-        # Normalize issue format
-        normalized_issues = []
+        # Normalize issue format using the normalizer function
+        normalized_issues: list[ValidationIssue] = []
         for issue in issues:
             if isinstance(issue, dict):
-                normalized_issues.append(
-                    {
-                        "lineNumber": issue.get(MARKDOWNLINT_LINE_KEY, 0),
-                        "ruleDescription": issue.get(
-                            MARKDOWNLINT_RULE_KEY, "Unknown error"
-                        ),
-                    }
-                )
+                normalized_issues.append(normalize_markdownlint_issue(issue))
 
         logger.info(
-            "Markdown validation failed for session %s: %d issues",
-            session_id,
-            len(normalized_issues),
+            "validation_ran",
+            extra={
+                "session_id": session_id,
+                "passed": False,
+                "issue_count": len(normalized_issues),
+            },
         )
         return cast(
             DocumentState,
@@ -122,14 +173,56 @@ def validate_md_node(state: DocumentState) -> DocumentState:
             },
         )
 
-    except subprocess.TimeoutExpired:
-        logger.error("Markdown validation timeout for session %s", session_id)
+    except FileNotFoundError:
+        logger.error("markdownlint CLI not found for session %s", session_id)
+        logger.info(
+            "validation_ran",
+            extra={
+                "session_id": session_id,
+                "passed": False,
+                "issue_count": 1,
+            },
+        )
         return cast(
             DocumentState,
             {
                 **state,
                 "validation_passed": False,
-                "validation_issues": [{"error": "Validation timeout"}],
+                "validation_issues": [
+                    ValidationIssue(
+                        line_number=0,
+                        rule="markdownlint",
+                        rule_description="CLI not found",
+                        message="markdownlint CLI not installed",
+                        error_detail="Please install markdownlint: npm install -g markdownlint-cli",
+                    )
+                ],
+            },
+        )
+    except subprocess.TimeoutExpired:
+        logger.error("Markdown validation timeout for session %s", session_id)
+        logger.info(
+            "validation_ran",
+            extra={
+                "session_id": session_id,
+                "passed": False,
+                "issue_count": 1,
+            },
+        )
+        return cast(
+            DocumentState,
+            {
+                **state,
+                "validation_passed": False,
+                "validation_issues": [
+                    ValidationIssue(
+                        line_number=0,
+                        rule="markdownlint",
+                        rule_description="Validation timeout",
+                        message="Validation timeout after 30 seconds",
+                        error_detail="The markdown file took too long to validate",
+                    )
+                ],
             },
         )
     except subprocess.SubprocessError as e:
@@ -138,12 +231,28 @@ def validate_md_node(state: DocumentState) -> DocumentState:
             session_id,
             e,
         )
+        logger.info(
+            "validation_ran",
+            extra={
+                "session_id": session_id,
+                "passed": False,
+                "issue_count": 1,
+            },
+        )
         return cast(
             DocumentState,
             {
                 **state,
                 "validation_passed": False,
-                "validation_issues": [{"error": f"Validation error: {str(e)}"}],
+                "validation_issues": [
+                    ValidationIssue(
+                        line_number=0,
+                        rule="markdownlint",
+                        rule_description="Validation error",
+                        message=f"Validation error: {str(e)}",
+                        error_detail=str(e),
+                    )
+                ],
             },
         )
     except Exception as e:
@@ -151,12 +260,28 @@ def validate_md_node(state: DocumentState) -> DocumentState:
             "Unexpected error validating markdown for session %s",
             session_id,
         )
+        logger.info(
+            "validation_ran",
+            extra={
+                "session_id": session_id,
+                "passed": False,
+                "issue_count": 1,
+            },
+        )
         return cast(
             DocumentState,
             {
                 **state,
                 "validation_passed": False,
-                "validation_issues": [{"error": f"Unexpected error: {str(e)}"}],
+                "validation_issues": [
+                    ValidationIssue(
+                        line_number=0,
+                        rule="markdownlint",
+                        rule_description="Unexpected error",
+                        message=f"Unexpected error: {str(e)}",
+                        error_detail=str(e),
+                    )
+                ],
             },
         )
 
@@ -412,3 +537,195 @@ def tools_node(state: DocumentState) -> DocumentState:
             "pending_question": extracted_pending_question,
         },
     )
+
+
+def _generate_checkpoint_filename(label: str, checkpoints_dir: Path) -> str:
+    """Generate unique checkpoint filename with timestamp + sequence.
+
+    If the base filename already exists, appends _0, _1, etc. until unique.
+
+    Args:
+        label: Sanitized label (e.g., "chapter_1")
+        checkpoints_dir: Path to checkpoints directory
+
+    Returns:
+        Unique filename: {timestamp}_{label}.md or {timestamp}_{label}_{n}.md
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    basename = f"{timestamp}_{label}.md"
+
+    if not (checkpoints_dir / basename).exists():
+        return basename
+
+    # Sequence suffix if exists
+    seq = 0
+    while (checkpoints_dir / f"{timestamp}_{label}_{seq}.md").exists():
+        seq += 1
+    return f"{timestamp}_{label}_{seq}.md"
+
+
+def checkpoint_node(state: DocumentState) -> DocumentState:
+    """Create checkpoint after validation passes (Story 4.1).
+
+    Copies temp_output.md to checkpoints/{timestamp}_chapter_{n}.md.
+    Updates state['last_checkpoint_id'] with the checkpoint basename.
+    Uses timestamp uniqueness: appends _0, _1, etc. if file exists.
+
+    Args:
+        state: DocumentState with session_id, current_chapter, temp_md_path
+
+    Returns:
+        Updated state with last_checkpoint_id set
+    """
+    session_id = state.get("session_id", "")
+    current_chapter = state.get("current_chapter", 0)
+
+    sm = SessionManager()
+    session_path = sm.get_path(session_id)
+
+    # Get temp_output.md path
+    temp_md_path = state.get("temp_md_path") or str(session_path / "temp_output.md")
+    temp_md_file = Path(temp_md_path)
+
+    if not temp_md_file.exists():
+        logger.warning("checkpoint_node: temp_output.md not found at %s", temp_md_path)
+        return cast(
+            DocumentState,
+            {
+                **state,
+                "last_checkpoint_id": "",
+                "last_error": f"temp_output.md not found at {temp_md_path}",
+                "error_type": "checkpoint_failed",
+            },
+        )
+
+    # Create checkpoints directory if missing
+    checkpoints_dir = session_path / "checkpoints"
+    checkpoints_dir.mkdir(parents=True, exist_ok=True)
+
+    # Generate label from state (chapter_{n})
+    label = f"chapter_{current_chapter}"
+
+    # Generate unique filename with timestamp + sequence
+    checkpoint_filename = _generate_checkpoint_filename(label, checkpoints_dir)
+    dest_path = checkpoints_dir / checkpoint_filename
+
+    try:
+        shutil.copy2(temp_md_file, dest_path)
+        logger.info(
+            "checkpoint_saved",
+            extra={
+                "session_id": session_id,
+                "checkpoint_id": checkpoint_filename,
+                "chapter": current_chapter,
+            },
+        )
+    except Exception as e:
+        logger.error(
+            "Failed to create checkpoint for session %s: %s",
+            session_id,
+            e,
+            exc_info=True,
+        )
+        return cast(
+            DocumentState,
+            {
+                **state,
+                "last_checkpoint_id": "",
+                "last_error": f"Checkpoint failed: {str(e)}",
+                "error_type": "checkpoint_failed",
+            },
+        )
+
+    return cast(
+        DocumentState,
+        {
+            **state,
+            "last_checkpoint_id": checkpoint_filename,
+        },
+    )
+
+
+def error_handler_node(state: DocumentState) -> DocumentState:
+    """Handle errors and decide retry vs complete (Story 4.4).
+
+    Called when an error occurs during agent execution. Checks for last_error
+    and decides whether to retry (restore from checkpoint) or complete (fail gracefully).
+
+    The actual routing decision is made by route_after_error in routing.py.
+
+    Args:
+        state: DocumentState with last_error, error_type set
+
+    Returns:
+        State unchanged (routing decision made by route_after_error)
+    """
+    session_id = state.get("session_id", "")
+    last_error = state.get("last_error", "")
+    error_type = state.get("error_type", "")
+
+    if last_error:
+        logger.info(
+            "error_handler_triggered",
+            extra={
+                "session_id": session_id,
+                "error_type": error_type,
+                "error": last_error[:200] if last_error else "",
+            },
+        )
+
+    return state
+
+
+def rollback_node(state: DocumentState) -> DocumentState:
+    """Restore temp_output.md from last_checkpoint_id before retry (Story 4.4).
+
+    Checks state['last_checkpoint_id'] and attempts to restore temp_output.md
+    from the checkpoint file. Logs rollback_performed on success or
+    rollback_skipped if no checkpoint or file missing.
+
+    Args:
+        state: DocumentState with session_id and last_checkpoint_id
+
+    Returns:
+        Updated state (last_checkpoint_id cleared after restore to prevent
+        duplicate rollback on subsequent retries)
+    """
+    session_id = state.get("session_id", "")
+    checkpoint_id = state.get("last_checkpoint_id", "")
+
+    # No checkpoint ID - skip rollback
+    if not checkpoint_id or not checkpoint_id.strip():
+        logger.info(
+            "rollback_skipped",
+            extra={
+                "session_id": session_id,
+                "reason": "no_checkpoint_id",
+            },
+        )
+        return cast(DocumentState, {**state})
+
+    # Attempt restore using shared helper
+    success = restore_from_checkpoint(session_id, checkpoint_id)
+
+    if success:
+        logger.info(
+            "rollback_performed",
+            extra={
+                "session_id": session_id,
+                "checkpoint_id": checkpoint_id,
+            },
+        )
+        # Clear last_checkpoint_id after restore to prevent duplicate rollback
+        return cast(DocumentState, {**state, "last_checkpoint_id": ""})
+    else:
+        # Checkpoint file missing - skip rollback, log warning
+        logger.warning(
+            "rollback_skipped",
+            extra={
+                "session_id": session_id,
+                "checkpoint_id": checkpoint_id,
+                "reason": "checkpoint_file_missing",
+            },
+        )
+        return cast(DocumentState, {**state})
