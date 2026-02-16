@@ -35,7 +35,7 @@ from backend.graph_nodes import (
     tools_node,
     validate_md_node,
 )
-from backend.routing import route_after_tools
+from backend.routing import route_after_tools, route_after_validation
 from backend.state import DocumentState, ImageRefResult, MissingRefDetail
 from backend.utils.asset_handler import apply_asset_scan_results
 from backend.utils.image_scanner import extract_image_refs, resolve_image_path
@@ -463,20 +463,29 @@ def create_document_workflow(
         },
     )
 
-    # Conditional edge: validate_md → checkpoint | agent
-    # If validation passes, go to checkpoint to save a snapshot
-    # If validation fails, go back to agent for fixes
-    def validate_routing(state: DocumentState) -> str:
-        if state.get("validation_passed"):
-            return "checkpoint"
-        return "agent"
+    # Node to increment fix_attempts before routing
+    def increment_fix_attempts_node(state: DocumentState) -> DocumentState:
+        """Increment fix_attempts counter when routing back to agent for fixes."""
+        if not state.get("validation_passed"):
+            current_attempts = state.get("fix_attempts", 0)
+            return {"fix_attempts": current_attempts + 1}
+        return {}
 
+    # Add the increment node
+    workflow.add_node("increment_fix_attempts", increment_fix_attempts_node)
+
+    # Edge: validate_md → increment_fix_attempts
+    workflow.add_edge("validate_md", "increment_fix_attempts")
+
+    # Conditional edge: increment_fix_attempts → checkpoint | agent | complete
+    # Uses route_after_validation which checks fix_attempts cap
     workflow.add_conditional_edges(
-        "validate_md",
-        validate_routing,
+        "increment_fix_attempts",
+        route_after_validation,
         {
             "checkpoint": "checkpoint",
             "agent": "agent",
+            "complete": "parse_to_json",
         },
     )
 

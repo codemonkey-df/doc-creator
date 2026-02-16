@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from backend.state import DocumentState
 
+MAX_FIX_ATTEMPTS = 3
+
 
 def route_after_tools(state: DocumentState) -> str:
     """Route after tools execute: agent | validate | human_input | complete.
@@ -44,4 +46,25 @@ def route_after_tools(state: DocumentState) -> str:
         return "complete"
 
     # Check 4: Continue processing
+    return "agent"
+
+
+def route_after_validation(state: DocumentState) -> str:
+    """Route after validation: checkpoint | agent (fix) | complete (max fixes exceeded).
+
+    Priority:
+    1. validation_passed=True → "checkpoint"
+    2. validation_passed=False AND fix_attempts < MAX_FIX_ATTEMPTS → "agent" (fix path)
+    3. validation_passed=False AND fix_attempts >= MAX_FIX_ATTEMPTS → "complete" (stop fix loop)
+
+    Also increments fix_attempts when routing to agent (fix).
+    """
+    if state.get("validation_passed"):
+        return "checkpoint"
+
+    fix_attempts = state.get("fix_attempts", 0)
+    if fix_attempts >= MAX_FIX_ATTEMPTS:
+        return "complete"  # Stop infinite fix loop
+
+    # Route to agent for fix
     return "agent"
