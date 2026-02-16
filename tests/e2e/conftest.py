@@ -4,10 +4,16 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
-from typing import Generator
+from typing import Any, Generator
 from unittest.mock import MagicMock
 
 import pytest
+
+from langchain_core.messages import AIMessage
+
+from backend.graph import create_document_workflow
+from backend.state import DocumentState, build_initial_state
+from backend.utils.session_manager import SessionManager
 
 
 @pytest.fixture
@@ -35,12 +41,22 @@ def sample_input_files(temp_session_dir: Path) -> list[str]:
 
 
 @pytest.fixture
-def mock_llm_responses() -> MagicMock:
-    """GIVEN mocked LLM that returns predefined responses."""
+def mock_llm() -> MagicMock:
+    """GIVEN mocked LLM that returns configurable AIMessage responses."""
     mock = MagicMock()
+    # Make bind_tools return self for chaining
+    mock.bind_tools.return_value = mock
+    # Default: completion with no tool calls
+    mock.invoke.return_value = AIMessage(content="Generation complete.")
+    return mock
 
-    # First call: agent generates content and calls create_checkpoint
-    mock.invoke.return_value = MagicMock(
+
+@pytest.fixture
+def mock_llm_with_checkpoint() -> MagicMock:
+    """GIVEN mocked LLM that returns AIMessage with create_checkpoint tool call."""
+    mock = MagicMock()
+    mock.bind_tools.return_value = mock
+    mock.invoke.return_value = AIMessage(
         content="I've created the first chapter.",
         tool_calls=[
             {
@@ -49,7 +65,6 @@ def mock_llm_responses() -> MagicMock:
             }
         ],
     )
-
     return mock
 
 
@@ -71,3 +86,40 @@ def hello():
 
 End of document.
 """
+
+
+@pytest.fixture
+def compiled_graph(temp_session_dir: Path) -> Any:
+    """GIVEN compiled document workflow with mocked SessionManager."""
+
+    # Create a mock session manager that returns our temp directory
+    class MockSessionManager:
+        def get_path(self, session_id: str) -> Path:
+            return temp_session_dir
+
+    # Create the workflow with mocked session manager
+    workflow = create_document_workflow(session_manager=MockSessionManager())
+
+    return workflow
+
+
+@pytest.fixture
+def initial_state_for_graph(
+    temp_session_dir: Path, sample_input_files: list[str]
+) -> DocumentState:
+    """GIVEN initial DocumentState ready for graph invocation."""
+    session_id = "test-session-123"
+    initial = build_initial_state(session_id=session_id, input_files=sample_input_files)
+
+    # Override session manager to use temp directory
+    sm = SessionManager()
+    original_get_path = sm.get_path
+
+    def mock_get_path(sid: str) -> Path:
+        if sid == session_id:
+            return temp_session_dir
+        return original_get_path(sid)
+
+    sm.get_path = mock_get_path
+
+    return initial
