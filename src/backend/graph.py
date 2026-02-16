@@ -29,7 +29,12 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from backend.agent import agent_node as agent_node_impl
-from backend.graph_nodes import parse_to_json_node, tools_node, validate_md_node
+from backend.graph_nodes import (
+    checkpoint_node,
+    parse_to_json_node,
+    tools_node,
+    validate_md_node,
+)
 from backend.routing import route_after_tools
 from backend.state import DocumentState, ImageRefResult, MissingRefDetail
 from backend.utils.asset_handler import apply_asset_scan_results
@@ -394,6 +399,7 @@ def create_document_workflow(
     workflow.add_node("agent", _agent_node)
     workflow.add_node("tools", tools_node)
     workflow.add_node("validate_md", validate_md_node)
+    workflow.add_node("checkpoint", checkpoint_node)
     workflow.add_node("parse_to_json", parse_to_json_node)
 
     # Entry point
@@ -457,8 +463,25 @@ def create_document_workflow(
         },
     )
 
-    # Edge: validate_md → agent (always route back to agent for fixes or next chapter)
-    workflow.add_edge("validate_md", "agent")
+    # Conditional edge: validate_md → checkpoint | agent
+    # If validation passes, go to checkpoint to save a snapshot
+    # If validation fails, go back to agent for fixes
+    def validate_routing(state: DocumentState) -> str:
+        if state.get("validation_passed"):
+            return "checkpoint"
+        return "agent"
+
+    workflow.add_conditional_edges(
+        "validate_md",
+        validate_routing,
+        {
+            "checkpoint": "checkpoint",
+            "agent": "agent",
+        },
+    )
+
+    # Edge: checkpoint → agent (after checkpoint saved, continue to next chapter)
+    workflow.add_edge("checkpoint", "agent")
 
     # Edge: parse_to_json → END (conversion complete)
     workflow.add_edge("parse_to_json", END)

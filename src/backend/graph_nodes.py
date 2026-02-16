@@ -1,10 +1,13 @@
-"""Graph nodes for Story 2.5: validate_md, parse_to_json, tools_node.
+"""Graph nodes for Story 2.5: validate_md, parse_to_json, tools_node, checkpoint_node.
 
 AC2.5.3: validate_md node runs markdown validation (markdownlint) and sets
 validation_passed and validation_issues. Routes back to agent for fixes.
 
 AC2.5.4: parse_to_json stub reads temp_output.md, writes minimal structure.json,
 sets structure_json_path for downstream conversion epic.
+
+Story 4.1: checkpoint_node runs after validation passes, copies temp_output.md
+to checkpoints/{timestamp}_chapter_{n}.md with timestamp uniqueness.
 
 Custom tools_node updates state from tool results: sets last_checkpoint_id from
 create_checkpoint tool and pending_question from request_human_input tool.
@@ -14,7 +17,9 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import subprocess
+from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -410,5 +415,112 @@ def tools_node(state: DocumentState) -> DocumentState:
             "messages": new_messages,  # Reducer will append via operator.add
             "last_checkpoint_id": extracted_checkpoint_id,
             "pending_question": extracted_pending_question,
+        },
+    )
+
+
+def _generate_checkpoint_filename(label: str, checkpoints_dir: Path) -> str:
+    """Generate unique checkpoint filename with timestamp + sequence.
+
+    If the base filename already exists, appends _0, _1, etc. until unique.
+
+    Args:
+        label: Sanitized label (e.g., "chapter_1")
+        checkpoints_dir: Path to checkpoints directory
+
+    Returns:
+        Unique filename: {timestamp}_{label}.md or {timestamp}_{label}_{n}.md
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    basename = f"{timestamp}_{label}.md"
+
+    if not (checkpoints_dir / basename).exists():
+        return basename
+
+    # Sequence suffix if exists
+    seq = 0
+    while (checkpoints_dir / f"{timestamp}_{label}_{seq}.md").exists():
+        seq += 1
+    return f"{timestamp}_{label}_{seq}.md"
+
+
+def checkpoint_node(state: DocumentState) -> DocumentState:
+    """Create checkpoint after validation passes (Story 4.1).
+
+    Copies temp_output.md to checkpoints/{timestamp}_chapter_{n}.md.
+    Updates state['last_checkpoint_id'] with the checkpoint basename.
+    Uses timestamp uniqueness: appends _0, _1, etc. if file exists.
+
+    Args:
+        state: DocumentState with session_id, current_chapter, temp_md_path
+
+    Returns:
+        Updated state with last_checkpoint_id set
+    """
+    session_id = state.get("session_id", "")
+    current_chapter = state.get("current_chapter", 0)
+
+    sm = SessionManager()
+    session_path = sm.get_path(session_id)
+
+    # Get temp_output.md path
+    temp_md_path = state.get("temp_md_path") or str(session_path / "temp_output.md")
+    temp_md_file = Path(temp_md_path)
+
+    if not temp_md_file.exists():
+        logger.warning("checkpoint_node: temp_output.md not found at %s", temp_md_path)
+        return cast(
+            DocumentState,
+            {
+                **state,
+                "last_checkpoint_id": "",
+                "last_error": f"temp_output.md not found at {temp_md_path}",
+                "error_type": "checkpoint_failed",
+            },
+        )
+
+    # Create checkpoints directory if missing
+    checkpoints_dir = session_path / "checkpoints"
+    checkpoints_dir.mkdir(parents=True, exist_ok=True)
+
+    # Generate label from state (chapter_{n})
+    label = f"chapter_{current_chapter}"
+
+    # Generate unique filename with timestamp + sequence
+    checkpoint_filename = _generate_checkpoint_filename(label, checkpoints_dir)
+    dest_path = checkpoints_dir / checkpoint_filename
+
+    try:
+        shutil.copy2(temp_md_file, dest_path)
+        logger.info(
+            "checkpoint_saved",
+            extra={
+                "session_id": session_id,
+                "checkpoint_id": checkpoint_filename,
+                "chapter": current_chapter,
+            },
+        )
+    except Exception as e:
+        logger.error(
+            "Failed to create checkpoint for session %s: %s",
+            session_id,
+            e,
+            exc_info=True,
+        )
+        return cast(
+            DocumentState,
+            {
+                **state,
+                "last_checkpoint_id": "",
+                "last_error": f"Checkpoint failed: {str(e)}",
+                "error_type": "checkpoint_failed",
+            },
+        )
+
+    return cast(
+        DocumentState,
+        {
+            **state,
+            "last_checkpoint_id": checkpoint_filename,
         },
     )
