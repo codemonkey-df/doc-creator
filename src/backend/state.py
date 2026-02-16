@@ -105,6 +105,7 @@ class DocumentState(TypedDict, total=False):
     validation_issues: list[ValidationIssue]
     generation_complete: bool
     fix_attempts: int
+    conversion_success: bool
 
 
 def build_initial_state(session_id: str, input_files: list[str]) -> DocumentState:
@@ -151,4 +152,5 @@ def build_initial_state(session_id: str, input_files: list[str]) -> DocumentStat
         "validation_issues": [],
         "generation_complete": False,
         "fix_attempts": 0,
+        "conversion_success": False,
     }

@@ -31,6 +31,7 @@ from langgraph.graph import END, START, StateGraph
 from backend.agent import agent_node as agent_node_impl
 from backend.graph_nodes import (
     checkpoint_node,
+    convert_with_docxjs_node,
     error_handler_node,
     parse_to_json_node,
     rollback_node,
@@ -405,6 +406,7 @@ def create_document_workflow(
     workflow.add_node("rollback", rollback_node)
     workflow.add_node("error_handler", error_handler_node)
     workflow.add_node("parse_to_json", parse_to_json_node)
+    workflow.add_node("convert_docx", convert_with_docxjs_node)
 
     # Entry point
     workflow.add_edge(START, "scan_assets")
@@ -515,8 +517,23 @@ def create_document_workflow(
     # Edge: rollback → agent (after restoring from checkpoint, retry)
     workflow.add_edge("rollback", "agent")
 
-    # Edge: parse_to_json → END (conversion complete)
-    workflow.add_edge("parse_to_json", END)
+    # Edge: parse_to_json → convert_docx (Story 5.4: convert to DOCX)
+    workflow.add_edge("parse_to_json", "convert_docx")
+
+    # Conditional edge: convert_docx → END (Story 5.5: quality_check will be added)
+    # Uses conversion_success to route: success → END, failure → END (fail gracefully)
+    # Note: error_handler not used because conversion failures are not recoverable
+    def route_after_conversion(s: DocumentState) -> str:
+        """Route after DOCX conversion: check conversion_success."""
+        if s.get("conversion_success"):
+            return "end"
+        return "end"  # Fail gracefully - don't loop back through parse_to_json
+
+    workflow.add_conditional_edges(
+        "convert_docx",
+        route_after_conversion,
+        {"end": END},
+    )
 
     # Compile with checkpointer and interrupt_before (Story 2.4)
     checkpointer = MemorySaver()
