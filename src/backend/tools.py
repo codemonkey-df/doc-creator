@@ -23,6 +23,9 @@ if TYPE_CHECKING:
 from backend.utils.image_scanner import resolve_image_path
 from backend.utils.settings import AssetScanSettings
 
+# Import shared checkpoint helper (Story 4.4)
+from backend.utils.checkpoint import restore_from_checkpoint
+
 logger = logging.getLogger(__name__)
 
 TEMP_OUTPUT_FILENAME = "temp_output.md"
@@ -203,13 +206,24 @@ def rollback_to_checkpoint(
     session_id: str,
     session_manager: SessionManager | None = None,
 ) -> str:
-    """Copy checkpoint file back to temp_output.md (FC009). checkpoint_id must be basename only."""
+    """Copy checkpoint file back to temp_output.md (FC009). checkpoint_id must be basename only.
+
+    Uses shared restore_from_checkpoint helper (Story 4.4).
+    Raises ValueError for invalid checkpoint_id, FileNotFoundError for missing file.
+    """
+    # Validate checkpoint_id first to preserve original ValueError behavior
+    from backend.utils.checkpoint import _validate_checkpoint_id, _session_path
+
     session_path = _session_path(session_id, session_manager)
-    src_path = _validate_checkpoint_id(checkpoint_id, session_path)
-    if not src_path.exists():
+    try:
+        _validate_checkpoint_id(checkpoint_id, session_path)
+    except ValueError:
+        raise
+
+    # Now attempt restoration
+    success = restore_from_checkpoint(session_id, checkpoint_id, session_manager)
+    if not success:
         raise FileNotFoundError(f"Checkpoint file not found: {checkpoint_id}")
-    dest_path = session_path / TEMP_OUTPUT_FILENAME
-    shutil.copy2(src_path, dest_path)
     return f"Restored from checkpoint {checkpoint_id}"
 
 

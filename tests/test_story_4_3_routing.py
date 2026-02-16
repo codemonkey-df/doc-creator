@@ -12,7 +12,7 @@ All tests use GIVEN-WHEN-THEN structure.
 from __future__ import annotations
 
 from backend.routing import MAX_FIX_ATTEMPTS, route_after_validation
-from backend.state import  build_initial_state
+from backend.state import build_initial_state
 
 
 # ============================================================================

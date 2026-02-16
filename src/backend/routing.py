@@ -68,3 +68,35 @@ def route_after_validation(state: DocumentState) -> str:
 
     # Route to agent for fix
     return "agent"
+
+
+def route_after_error(state: DocumentState) -> str:
+    """Route after error handler decides to retry or fail (Story 4.4).
+
+    Priority:
+    1. Has checkpoint AND retry_count < MAX_RETRY_ATTEMPTS → "rollback" (restore checkpoint, retry)
+    2. Otherwise → "complete" (fail gracefully)
+
+    Args:
+        state: DocumentState with last_error, error_type, last_checkpoint_id, retry_count
+
+    Returns:
+        One of: "rollback", "complete"
+    """
+    retry_count = state.get("retry_count", 0)
+    last_checkpoint_id = state.get("last_checkpoint_id", "")
+
+    # Route to rollback only if there's a checkpoint AND we haven't exceeded retry limit
+    if (
+        last_checkpoint_id
+        and last_checkpoint_id.strip()
+        and retry_count < MAX_RETRY_ATTEMPTS
+    ):
+        return "rollback"
+
+    # No checkpoint or max retries exceeded - proceed to complete (fail gracefully)
+    return "complete"
+
+
+# Max retry attempts for error handling
+MAX_RETRY_ATTEMPTS = 3

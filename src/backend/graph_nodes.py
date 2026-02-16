@@ -26,6 +26,7 @@ from typing import Any, cast
 from backend.state import DocumentState, ValidationIssue
 from backend.tools import get_tools
 from backend.utils.session_manager import SessionManager
+from backend.utils.checkpoint import restore_from_checkpoint
 
 logger = logging.getLogger(__name__)
 
@@ -643,3 +644,88 @@ def checkpoint_node(state: DocumentState) -> DocumentState:
             "last_checkpoint_id": checkpoint_filename,
         },
     )
+
+
+def error_handler_node(state: DocumentState) -> DocumentState:
+    """Handle errors and decide retry vs complete (Story 4.4).
+
+    Called when an error occurs during agent execution. Checks for last_error
+    and decides whether to retry (restore from checkpoint) or complete (fail gracefully).
+
+    The actual routing decision is made by route_after_error in routing.py.
+
+    Args:
+        state: DocumentState with last_error, error_type set
+
+    Returns:
+        State unchanged (routing decision made by route_after_error)
+    """
+    session_id = state.get("session_id", "")
+    last_error = state.get("last_error", "")
+    error_type = state.get("error_type", "")
+
+    if last_error:
+        logger.info(
+            "error_handler_triggered",
+            extra={
+                "session_id": session_id,
+                "error_type": error_type,
+                "error": last_error[:200] if last_error else "",
+            },
+        )
+
+    return state
+
+
+def rollback_node(state: DocumentState) -> DocumentState:
+    """Restore temp_output.md from last_checkpoint_id before retry (Story 4.4).
+
+    Checks state['last_checkpoint_id'] and attempts to restore temp_output.md
+    from the checkpoint file. Logs rollback_performed on success or
+    rollback_skipped if no checkpoint or file missing.
+
+    Args:
+        state: DocumentState with session_id and last_checkpoint_id
+
+    Returns:
+        Updated state (last_checkpoint_id cleared after restore to prevent
+        duplicate rollback on subsequent retries)
+    """
+    session_id = state.get("session_id", "")
+    checkpoint_id = state.get("last_checkpoint_id", "")
+
+    # No checkpoint ID - skip rollback
+    if not checkpoint_id or not checkpoint_id.strip():
+        logger.info(
+            "rollback_skipped",
+            extra={
+                "session_id": session_id,
+                "reason": "no_checkpoint_id",
+            },
+        )
+        return cast(DocumentState, {**state})
+
+    # Attempt restore using shared helper
+    success = restore_from_checkpoint(session_id, checkpoint_id)
+
+    if success:
+        logger.info(
+            "rollback_performed",
+            extra={
+                "session_id": session_id,
+                "checkpoint_id": checkpoint_id,
+            },
+        )
+        # Clear last_checkpoint_id after restore to prevent duplicate rollback
+        return cast(DocumentState, {**state, "last_checkpoint_id": ""})
+    else:
+        # Checkpoint file missing - skip rollback, log warning
+        logger.warning(
+            "rollback_skipped",
+            extra={
+                "session_id": session_id,
+                "checkpoint_id": checkpoint_id,
+                "reason": "checkpoint_file_missing",
+            },
+        )
+        return cast(DocumentState, {**state})

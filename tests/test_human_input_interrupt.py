@@ -325,6 +325,10 @@ def test_scan_assets_to_agent_when_no_missing_references(
     session_manager: SessionManager,
 ) -> None:
     """GIVEN scan_assets node without missing_references / WHEN conditional edge evaluates / THEN routes to 'agent'."""
+    from unittest.mock import MagicMock, patch
+
+    from langchain_core.messages import AIMessage
+
     session_id = session_manager.create()
     session_path = session_manager.get_path(session_id)
     inputs_dir = session_path / "inputs"
@@ -339,10 +343,17 @@ def test_scan_assets_to_agent_when_no_missing_references(
         """Conditional edge: 'human_input' if missing_references else 'agent'."""
         return "human_input" if s.get("missing_references") else "agent"
 
-    workflow = create_document_workflow(session_manager=session_manager)
-    # Must provide thread_id when checkpointer is enabled
-    config = {"configurable": {"thread_id": "test-scan-assets-no-missing"}}
-    result = workflow.invoke(initial_state, config)
+    # Mock LLM to avoid real API calls
+    mock_ai = AIMessage(content="Done", tool_calls=[])
+    with patch("backend.agent.get_llm") as mock_get_llm:
+        mock_llm = MagicMock()
+        mock_llm.bind_tools.return_value.invoke.return_value = mock_ai
+        mock_get_llm.return_value = mock_llm
+
+        workflow = create_document_workflow(session_manager=session_manager)
+        # Must provide thread_id when checkpointer is enabled
+        config = {"configurable": {"thread_id": "test-scan-assets-no-missing"}}
+        result = workflow.invoke(initial_state, config)
 
     # No missing_references
     assert not result["missing_references"]

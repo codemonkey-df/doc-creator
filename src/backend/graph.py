@@ -31,11 +31,13 @@ from langgraph.graph import END, START, StateGraph
 from backend.agent import agent_node as agent_node_impl
 from backend.graph_nodes import (
     checkpoint_node,
+    error_handler_node,
     parse_to_json_node,
+    rollback_node,
     tools_node,
     validate_md_node,
 )
-from backend.routing import route_after_tools, route_after_validation
+from backend.routing import route_after_error, route_after_tools, route_after_validation
 from backend.state import DocumentState, ImageRefResult, MissingRefDetail
 from backend.utils.asset_handler import apply_asset_scan_results
 from backend.utils.image_scanner import extract_image_refs, resolve_image_path
@@ -400,6 +402,8 @@ def create_document_workflow(
     workflow.add_node("tools", tools_node)
     workflow.add_node("validate_md", validate_md_node)
     workflow.add_node("checkpoint", checkpoint_node)
+    workflow.add_node("rollback", rollback_node)
+    workflow.add_node("error_handler", error_handler_node)
     workflow.add_node("parse_to_json", parse_to_json_node)
 
     # Entry point
@@ -419,15 +423,19 @@ def create_document_workflow(
     # Edge: apply_user_decisions → agent (after decisions applied, resume to agent)
     workflow.add_edge("apply_user_decisions", "agent")
 
-    # Conditional edge 2: agent → human_input | tools (interrupt point 2)
+    # Conditional edge 2: agent → human_input | tools | error_handler (interrupt point 2)
     # Route to tools if agent generated tool_calls, otherwise route to human_input if pending_question set
     def agent_routing(s: DocumentState) -> str:
-        """Route from agent: prioritize human_input, then check for tool_calls to route to tools."""
+        """Route from agent: prioritize human_input, then error, then check for tool_calls to route to tools."""
         # Check 1: Agent set pending_question (from content analysis)
         if s.get("pending_question") and str(s["pending_question"]).strip():
             return "human_input"
 
-        # Check 2: Agent generated tool_calls
+        # Check 2: Agent returned an error (last_error set by tools_node or agent)
+        if s.get("last_error") and str(s["last_error"]).strip():
+            return "error_handler"
+
+        # Check 3: Agent generated tool_calls
         messages = s.get("messages", [])
         if messages:
             from langchain_core.messages import AIMessage
@@ -447,6 +455,7 @@ def create_document_workflow(
         {
             "human_input": "human_input",
             "tools": "tools",
+            "error_handler": "error_handler",
         },
     )
 
@@ -491,6 +500,20 @@ def create_document_workflow(
 
     # Edge: checkpoint → agent (after checkpoint saved, continue to next chapter)
     workflow.add_edge("checkpoint", "agent")
+
+    # Conditional edge: error_handler → rollback | complete
+    # Uses route_after_error to decide whether to retry (rollback) or fail (complete)
+    workflow.add_conditional_edges(
+        "error_handler",
+        route_after_error,
+        {
+            "rollback": "rollback",
+            "complete": "parse_to_json",
+        },
+    )
+
+    # Edge: rollback → agent (after restoring from checkpoint, retry)
+    workflow.add_edge("rollback", "agent")
 
     # Edge: parse_to_json → END (conversion complete)
     workflow.add_edge("parse_to_json", END)
