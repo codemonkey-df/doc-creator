@@ -23,15 +23,28 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
-from backend.state import DocumentState
+from backend.state import DocumentState, ValidationIssue
 from backend.tools import get_tools
 from backend.utils.session_manager import SessionManager
 
 logger = logging.getLogger(__name__)
 
-# Markdownlint JSON output field names
-MARKDOWNLINT_LINE_KEY = "lineNumber"
-MARKDOWNLINT_RULE_KEY = "ruleDescription"
+
+def normalize_markdownlint_issue(raw_issue: dict[str, Any]) -> ValidationIssue:
+    """Normalize markdownlint JSON to ValidationIssue."""
+    line_number = raw_issue.get("lineNumber", 0)
+    rule_names = raw_issue.get("ruleNames", [])
+    rule = rule_names[0] if rule_names else ""
+    rule_description = raw_issue.get("ruleDescription", "")
+    error_detail = raw_issue.get("errorDetail", "")
+
+    return ValidationIssue(
+        line_number=line_number,
+        rule=rule,
+        rule_description=rule_description,
+        message=f"{rule_description} (line {line_number})",
+        error_detail=error_detail,
+    )
 
 
 def validate_md_node(state: DocumentState) -> DocumentState:
@@ -65,7 +78,13 @@ def validate_md_node(state: DocumentState) -> DocumentState:
                 **state,
                 "validation_passed": False,
                 "validation_issues": [
-                    {"error": f"temp_output.md not found at {temp_md_path}"}
+                    ValidationIssue(
+                        line_number=0,
+                        rule="markdownlint",
+                        rule_description="File not found",
+                        message=f"temp_output.md not found at {temp_md_path}",
+                        error_detail=f"temp_output.md not found at {temp_md_path}",
+                    )
                 ],
             },
         )
@@ -81,7 +100,14 @@ def validate_md_node(state: DocumentState) -> DocumentState:
 
         if result.returncode == 0:
             # No errors
-            logger.info("Markdown validation passed for session %s", session_id)
+            logger.info(
+                "validation_ran",
+                extra={
+                    "session_id": session_id,
+                    "passed": True,
+                    "issue_count": 0,
+                },
+            )
             return cast(
                 DocumentState,
                 {
@@ -98,25 +124,44 @@ def validate_md_node(state: DocumentState) -> DocumentState:
             logger.warning(
                 "Failed to parse markdownlint JSON output: %s", result.stdout
             )
-            issues = [{"error": "Failed to parse markdownlint output"}]
+            logger.info(
+                "validation_ran",
+                extra={
+                    "session_id": session_id,
+                    "passed": False,
+                    "issue_count": 1,
+                },
+            )
+            return cast(
+                DocumentState,
+                {
+                    **state,
+                    "validation_passed": False,
+                    "validation_issues": [
+                        ValidationIssue(
+                            line_number=0,
+                            rule="markdownlint",
+                            rule_description="JSON parse error",
+                            message="Failed to parse markdownlint output",
+                            error_detail=result.stdout[:500] if result.stdout else "",
+                        )
+                    ],
+                },
+            )
 
-        # Normalize issue format
-        normalized_issues = []
+        # Normalize issue format using the normalizer function
+        normalized_issues: list[ValidationIssue] = []
         for issue in issues:
             if isinstance(issue, dict):
-                normalized_issues.append(
-                    {
-                        "lineNumber": issue.get(MARKDOWNLINT_LINE_KEY, 0),
-                        "ruleDescription": issue.get(
-                            MARKDOWNLINT_RULE_KEY, "Unknown error"
-                        ),
-                    }
-                )
+                normalized_issues.append(normalize_markdownlint_issue(issue))
 
         logger.info(
-            "Markdown validation failed for session %s: %d issues",
-            session_id,
-            len(normalized_issues),
+            "validation_ran",
+            extra={
+                "session_id": session_id,
+                "passed": False,
+                "issue_count": len(normalized_issues),
+            },
         )
         return cast(
             DocumentState,
@@ -127,14 +172,56 @@ def validate_md_node(state: DocumentState) -> DocumentState:
             },
         )
 
-    except subprocess.TimeoutExpired:
-        logger.error("Markdown validation timeout for session %s", session_id)
+    except FileNotFoundError:
+        logger.error("markdownlint CLI not found for session %s", session_id)
+        logger.info(
+            "validation_ran",
+            extra={
+                "session_id": session_id,
+                "passed": False,
+                "issue_count": 1,
+            },
+        )
         return cast(
             DocumentState,
             {
                 **state,
                 "validation_passed": False,
-                "validation_issues": [{"error": "Validation timeout"}],
+                "validation_issues": [
+                    ValidationIssue(
+                        line_number=0,
+                        rule="markdownlint",
+                        rule_description="CLI not found",
+                        message="markdownlint CLI not installed",
+                        error_detail="Please install markdownlint: npm install -g markdownlint-cli",
+                    )
+                ],
+            },
+        )
+    except subprocess.TimeoutExpired:
+        logger.error("Markdown validation timeout for session %s", session_id)
+        logger.info(
+            "validation_ran",
+            extra={
+                "session_id": session_id,
+                "passed": False,
+                "issue_count": 1,
+            },
+        )
+        return cast(
+            DocumentState,
+            {
+                **state,
+                "validation_passed": False,
+                "validation_issues": [
+                    ValidationIssue(
+                        line_number=0,
+                        rule="markdownlint",
+                        rule_description="Validation timeout",
+                        message="Validation timeout after 30 seconds",
+                        error_detail="The markdown file took too long to validate",
+                    )
+                ],
             },
         )
     except subprocess.SubprocessError as e:
@@ -143,12 +230,28 @@ def validate_md_node(state: DocumentState) -> DocumentState:
             session_id,
             e,
         )
+        logger.info(
+            "validation_ran",
+            extra={
+                "session_id": session_id,
+                "passed": False,
+                "issue_count": 1,
+            },
+        )
         return cast(
             DocumentState,
             {
                 **state,
                 "validation_passed": False,
-                "validation_issues": [{"error": f"Validation error: {str(e)}"}],
+                "validation_issues": [
+                    ValidationIssue(
+                        line_number=0,
+                        rule="markdownlint",
+                        rule_description="Validation error",
+                        message=f"Validation error: {str(e)}",
+                        error_detail=str(e),
+                    )
+                ],
             },
         )
     except Exception as e:
@@ -156,12 +259,28 @@ def validate_md_node(state: DocumentState) -> DocumentState:
             "Unexpected error validating markdown for session %s",
             session_id,
         )
+        logger.info(
+            "validation_ran",
+            extra={
+                "session_id": session_id,
+                "passed": False,
+                "issue_count": 1,
+            },
+        )
         return cast(
             DocumentState,
             {
                 **state,
                 "validation_passed": False,
-                "validation_issues": [{"error": f"Unexpected error: {str(e)}"}],
+                "validation_issues": [
+                    ValidationIssue(
+                        line_number=0,
+                        rule="markdownlint",
+                        rule_description="Unexpected error",
+                        message=f"Unexpected error: {str(e)}",
+                        error_detail=str(e),
+                    )
+                ],
             },
         )
 

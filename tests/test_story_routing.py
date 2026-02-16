@@ -190,7 +190,7 @@ def test_validate_md_node_with_invalid_markdown(
 
     assert result["validation_passed"] is False
     assert len(result["validation_issues"]) > 0
-    assert result["validation_issues"][0]["lineNumber"] == 5
+    assert result["validation_issues"][0]["line_number"] == 5
 
 
 def test_validate_md_node_preserves_other_state(

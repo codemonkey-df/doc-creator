@@ -54,6 +54,16 @@ class MissingRefDetail(TypedDict):
     source_file: str
 
 
+class ValidationIssue(TypedDict, total=False):
+    """A single markdown validation issue from markdownlint."""
+
+    line_number: int
+    rule: str
+    rule_description: str
+    message: str
+    error_detail: str
+
+
 class DocumentState(TypedDict, total=False):
     """State passed through the document generation workflow.
 
@@ -92,7 +102,7 @@ class DocumentState(TypedDict, total=False):
     ]
     messages: Annotated[list[BaseMessage], operator.add]
     validation_passed: bool
-    validation_issues: list[dict[str, str]]
+    validation_issues: list[ValidationIssue]
     generation_complete: bool
 
 
