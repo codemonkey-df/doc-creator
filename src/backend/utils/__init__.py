@@ -6,6 +6,7 @@ from backend.utils.file_discovery import (
     list_available_files,
     validate_requested_files,
 )
+from backend.utils.logger import StructuredLogger, clear_loggers, get_logger
 from backend.utils.sanitizer import InputSanitizer
 from backend.utils.settings import SanitizerSettings
 
@@ -14,7 +15,10 @@ __all__ = [
     "InputSanitizer",
     "SanitizerSettings",
     "SecurityError",
+    "StructuredLogger",
     "ValidationError",
+    "clear_loggers",
+    "get_logger",
     "list_available_files",
     "validate_requested_files",
 ]

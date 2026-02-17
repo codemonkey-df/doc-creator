@@ -611,34 +611,147 @@ def checkpoint_node(state: DocumentState) -> DocumentState:
 
 
 def error_handler_node(state: DocumentState) -> DocumentState:
-    """Handle errors and decide retry vs complete (Story 4.4).
+    """Handle errors with classification, rollback, handler invocation, and retry logic (Story 6.3).
 
-    Called when an error occurs during agent execution. Checks for last_error
-    and decides whether to retry (restore from checkpoint) or complete (fail gracefully).
+    Flow:
+    1. Get session info (session_id, last_error, last_checkpoint_id, retry_count)
+    2. Classify error using ErrorClassifier
+    3. Log state transition to error_handling
+    4. Log error_classified event
+    5. Rollback if checkpoint available (restore_from_checkpoint)
+    6. Invoke handler based on error_type (syntax/encoding/asset/structural)
+    7. Log handler result
+    8. Increment retry_count
+    9. Log retry_count and routing decision (retry vs fail)
 
-    The actual routing decision is made by route_after_error in routing.py.
+    Note: The actual routing to retry or fail is done by should_retry_conversion in routing.py.
 
     Args:
-        state: DocumentState with last_error, error_type set
+        state: DocumentState with last_error, last_checkpoint_id, retry_count
 
     Returns:
-        State unchanged (routing decision made by route_after_error)
+        Updated state with error_type, retry_count incremented, handler_outcome set
     """
+    from backend.error_handlers import (
+        ErrorType,
+        classify,
+        fix_heading_hierarchy,
+        fix_invalid_utf8,
+        fix_unclosed_code_block,
+        insert_placeholder,
+    )
+    from backend.utils.checkpoint import restore_from_checkpoint
+
+    # Step 1: Get session info
     session_id = state.get("session_id", "")
     last_error = state.get("last_error", "")
-    error_type = state.get("error_type", "")
+    last_checkpoint_id = state.get("last_checkpoint_id", "")
+    current_retry_count = state.get("retry_count", 0)
 
-    if last_error:
+    # Step 2: Classify error
+    error_type, metadata = classify(last_error)
+
+    # Step 3: Log state transition to error_handling
+    logger.info(
+        "state_transition",
+        extra={
+            "session_id": session_id,
+            "from_status": state.get("status", ""),
+            "to_status": "error_handling",
+        },
+    )
+
+    # Step 4: Log error_classified
+    logger.info(
+        "error_classified",
+        extra={
+            "session_id": session_id,
+            "error_type": error_type.value,
+            "line_number": metadata.get("line_number"),
+            "asset_ref": metadata.get("asset_ref"),
+        },
+    )
+
+    # Step 5: Rollback if checkpoint available
+    rollback_success = False
+    if last_checkpoint_id and last_checkpoint_id.strip():
+        rollback_success = restore_from_checkpoint(session_id, last_checkpoint_id)
+        if rollback_success:
+            logger.info(
+                "rollback_performed",
+                extra={
+                    "session_id": session_id,
+                    "checkpoint_id": last_checkpoint_id,
+                },
+            )
+        else:
+            logger.info(
+                "rollback_skipped",
+                extra={
+                    "session_id": session_id,
+                    "checkpoint_id": last_checkpoint_id,
+                    "reason": "restore_failed",
+                },
+            )
+
+    # Step 6: Invoke handler based on error_type
+    handler_outcome = ""
+    if error_type == ErrorType.SYNTAX:
+        handler_outcome = fix_unclosed_code_block(
+            session_id, metadata.get("line_number")
+        )
+    elif error_type == ErrorType.ENCODING:
+        handler_outcome = fix_invalid_utf8(session_id)
+    elif error_type == ErrorType.ASSET:
+        handler_outcome = insert_placeholder(session_id, metadata.get("asset_ref"))
+    elif error_type == ErrorType.STRUCTURAL:
+        handler_outcome = fix_heading_hierarchy(session_id)
+    else:
+        # Unknown error - no handler applied
+        handler_outcome = "Unknown error - no fix applied"
         logger.info(
-            "error_handler_triggered",
+            "error_fix_skipped",
             extra={
                 "session_id": session_id,
-                "error_type": error_type,
-                "error": last_error[:200] if last_error else "",
+                "reason": "unknown_error_type",
             },
         )
 
-    return state
+    # Step 7: Log handler result
+    logger.info(
+        "error_fix_attempted",
+        extra={
+            "session_id": session_id,
+            "error_type": error_type.value,
+            "handler_outcome": handler_outcome[:200] if handler_outcome else "",
+        },
+    )
+
+    # Step 8: Increment retry_count
+    new_retry_count = current_retry_count + 1
+
+    # Step 9: Log retry_count and routing decision
+    route = "retry" if new_retry_count < 3 else "fail"
+    logger.info(
+        "error_handler_complete",
+        extra={
+            "session_id": session_id,
+            "retry_count": new_retry_count,
+            "route": route,
+        },
+    )
+
+    # Step 10: Return updated state
+    return cast(
+        DocumentState,
+        {
+            **state,
+            "error_type": error_type.value,
+            "retry_count": new_retry_count,
+            "handler_outcome": handler_outcome,
+            "status": "error_handling",
+        },
+    )
 
 
 def rollback_node(state: DocumentState) -> DocumentState:
@@ -982,5 +1095,213 @@ def quality_check_node(state: DocumentState) -> DocumentState:
                 "quality_issues": quality_issues,
                 "last_error": f"Quality check failed: {issue_summary}",
                 "status": "error_handling",
+            },
+        )
+
+
+def save_results_node(state: DocumentState) -> DocumentState:
+    """Handle final results: success path (archive session) or failure path (write error files).
+
+    Story 6.4 DoD - Handles both success and failure paths:
+
+    Failure branch: (retry_count >= MAX_RETRY_ATTEMPTS) or (status == "failed")
+      - Copy temp_output.md to FAILED_conversion.md (or create placeholder if missing)
+      - Write ERROR_REPORT.txt with full error details (last_error truncated to 1000 chars)
+      - Set status="failed"
+
+    Success branch: conversion succeeded and passed quality check
+      - Archive session (cleanup temp files, mark complete)
+      - Set status="complete"
+      - Set output_docx_path to archive location
+
+    Always routes to END.
+
+    Args:
+        state: DocumentState with conversion_success, retry_count, status, etc.
+
+    Returns:
+        Updated state with status="complete" or status="failed"
+    """
+    import shutil
+    from datetime import datetime
+    from backend.routing import MAX_RETRY_ATTEMPTS
+    from backend.utils.session_manager import SessionManager
+
+    session_id = state.get("session_id", "")
+    sm = SessionManager()
+    session_path = sm.get_path(session_id)
+
+    retry_count = state.get("retry_count", 0)
+    current_status = state.get("status", "")
+    last_error = state.get("last_error", "")
+
+    # Determine failure: max retries exceeded OR explicitly failed status
+    is_failure = (retry_count >= MAX_RETRY_ATTEMPTS) or (current_status == "failed")
+
+    if is_failure:
+        # Failure path: write error files
+        # Truncate last_error to 1000 chars
+        truncated_error = last_error[:1000] if last_error else "Unknown error"
+
+        # Copy temp_output.md to FAILED_conversion.md if it exists
+        failed_md_path = session_path / "FAILED_conversion.md"
+        temp_output_path = session_path / "temp_output.md"
+
+        if temp_output_path.exists():
+            try:
+                shutil.copy2(temp_output_path, failed_md_path)
+                logger.info(
+                    "failure_report_copied_from_temp",
+                    extra={
+                        "session_id": session_id,
+                        "source": str(temp_output_path),
+                        "destination": str(failed_md_path),
+                    },
+                )
+            except Exception:
+                # Fallback to generated content
+                failed_content = f"""# Conversion Failed
+
+**Session ID**: {session_id}
+**Timestamp**: {datetime.now().isoformat()}
+**Retry Count**: {retry_count}/{MAX_RETRY_ATTEMPTS}
+
+## Error Summary
+
+{truncated_error}
+
+## Details
+
+- Status: {current_status}
+- Error Type: {state.get("error_type", "unknown")}
+- Handler Outcome: {str(state.get("handler_outcome", "N/A"))[:200]}
+"""
+                failed_md_path.write_text(failed_content, encoding="utf-8")
+        else:
+            # Create placeholder FAILED_conversion.md
+            failed_content = f"""# Conversion Failed
+
+**Session ID**: {session_id}
+**Timestamp**: {datetime.now().isoformat()}
+**Retry Count**: {retry_count}/{MAX_RETRY_ATTEMPTS}
+
+## Error Summary
+
+{truncated_error}
+
+## Details
+
+- Status: {current_status}
+- Error Type: {state.get("error_type", "unknown")}
+- Handler Outcome: {str(state.get("handler_outcome", "N/A"))[:200]}
+
+## Note
+
+No intermediate output file was available for review.
+"""
+            failed_md_path.write_text(failed_content, encoding="utf-8")
+
+        logger.info(
+            "failure_report_written",
+            extra={
+                "session_id": session_id,
+                "path": str(failed_md_path),
+            },
+        )
+
+        # Write ERROR_REPORT.txt
+        error_report_path = session_path / "ERROR_REPORT.txt"
+        error_report_content = f"""Error Report
+===========
+Session ID: {session_id}
+Timestamp: {datetime.now().isoformat()}
+Retry Count: {retry_count}/{MAX_RETRY_ATTEMPTS}
+
+Status: {current_status}
+Error Type: {state.get("error_type", "unknown")}
+
+Error Message:
+--------------
+{truncated_error}
+
+Handler Outcome:
+----------------
+{state.get("handler_outcome", "N/A")}
+
+State Summary:
+--------------
+conversion_success: {state.get("conversion_success", False)}
+quality_passed: {state.get("quality_passed", False)}
+validation_passed: {state.get("validation_passed", False)}
+generation_complete: {state.get("generation_complete", False)}
+
+Guidance:
+---------
+- Check the error message above for the root cause
+- Review FAILED_conversion.md for the document state at time of failure
+- Ensure all referenced assets (images, files) exist and paths are correct
+- Verify document structure follows expected heading hierarchy
+- If retry attempts were made, each retry may have modified the document
+- Consider running with debug logging for more detailed error information
+"""
+        try:
+            error_report_path.write_text(error_report_content, encoding="utf-8")
+            logger.info(
+                "error_report_written",
+                extra={
+                    "session_id": session_id,
+                    "path": str(error_report_path),
+                },
+            )
+        except Exception as e:
+            logger.error(
+                "Failed to write ERROR_REPORT.txt: %s",
+                e,
+                exc_info=True,
+            )
+
+        logger.info(
+            "session_failed",
+            extra={
+                "session_id": session_id,
+                "retry_count": retry_count,
+                "max_retries": MAX_RETRY_ATTEMPTS,
+                "error_type": state.get("error_type", "unknown"),
+            },
+        )
+
+        return cast(
+            DocumentState,
+            {
+                **state,
+                "status": "failed",
+            },
+        )
+    else:
+        # Success path: archive session (mark complete)
+        # Get docs_base_path and archive_dir from SessionManager settings
+        docs_base_path = sm._settings.docs_base_path
+        archive_dir = sm._settings.archive_dir
+
+        # Archive the session
+        sm.cleanup(session_id, archive=True)
+
+        # Set output_docx_path to archive location
+        archive_output_path = docs_base_path / archive_dir / session_id / "output.docx"
+
+        logger.info(
+            "session_completed",
+            extra={
+                "session_id": session_id,
+                "output_docx_path": str(archive_output_path),
+            },
+        )
+
+        return cast(
+            DocumentState,
+            {
+                **state,
+                "status": "complete",
+                "output_docx_path": str(archive_output_path),
             },
         )

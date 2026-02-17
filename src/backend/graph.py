@@ -36,10 +36,15 @@ from backend.graph_nodes import (
     parse_to_json_node,
     quality_check_node,
     rollback_node,
+    save_results_node,
     tools_node,
     validate_md_node,
 )
-from backend.routing import route_after_error, route_after_tools, route_after_validation
+from backend.routing import (
+    route_after_tools,
+    route_after_validation,
+    should_retry_conversion,
+)
 from backend.state import DocumentState, ImageRefResult, MissingRefDetail
 from backend.utils.asset_handler import apply_asset_scan_results
 from backend.utils.image_scanner import extract_image_refs, resolve_image_path
@@ -409,6 +414,7 @@ def create_document_workflow(
     workflow.add_node("parse_to_json", parse_to_json_node)
     workflow.add_node("convert_docx", convert_with_docxjs_node)
     workflow.add_node("quality_check", quality_check_node)
+    workflow.add_node("save_results", save_results_node)
 
     # Entry point
     workflow.add_edge(START, "scan_assets")
@@ -505,19 +511,20 @@ def create_document_workflow(
     # Edge: checkpoint → agent (after checkpoint saved, continue to next chapter)
     workflow.add_edge("checkpoint", "agent")
 
-    # Conditional edge: error_handler → rollback | complete
-    # Uses route_after_error to decide whether to retry (rollback) or fail (complete)
+    # Conditional edge: error_handler → retry | fail
+    # Uses should_retry_conversion to decide whether to retry or fail (Story 6.3)
+    # Note: rollback is now handled inside error_handler_node, so retry goes directly to agent
     workflow.add_conditional_edges(
         "error_handler",
-        route_after_error,
+        should_retry_conversion,
         {
-            "rollback": "rollback",
-            "complete": "parse_to_json",
+            "retry": "agent",
+            "fail": "save_results",
         },
     )
 
-    # Edge: rollback → agent (after restoring from checkpoint, retry)
-    workflow.add_edge("rollback", "agent")
+    # Edge: save_results → END (final state)
+    workflow.add_edge("save_results", END)
 
     # Edge: parse_to_json → convert_docx (Story 5.4: convert to DOCX)
     workflow.add_edge("parse_to_json", "convert_docx")

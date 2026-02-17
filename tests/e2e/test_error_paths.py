@@ -28,8 +28,8 @@ class MockSessionManager:
 class TestErrorPaths:
     """Test error handling paths in the workflow."""
 
-    def test_error_handler_node_sets_error_state(self, temp_session_dir: Path) -> None:
-        """GIVEN state with error WHEN error_handler_node runs THEN logs and returns state."""
+    def test_error_handler_node_classifies_error(self, temp_session_dir: Path) -> None:
+        """GIVEN state with error WHEN error_handler_node runs THEN classifies error and increments retry."""
         session_id = str(uuid.uuid4())
         state = build_initial_state(session_id=session_id, input_files=["doc.md"])
         state["last_error"] = "Test error message"
@@ -37,9 +37,12 @@ class TestErrorPaths:
 
         result = error_handler_node(state)
 
-        # Assert: state returned with error
-        assert result["last_error"] == "Test error message"
-        assert result["error_type"] == "test_error"
+        # Assert: error is classified (unknown for generic message)
+        assert result["error_type"] == "unknown"
+        # Assert: retry_count is incremented
+        assert result["retry_count"] == 1
+        # Assert: handler_outcome is set
+        assert "handler_outcome" in result
 
 
 class TestErrorRouting:
