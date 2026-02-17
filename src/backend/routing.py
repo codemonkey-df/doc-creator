@@ -100,3 +100,22 @@ def route_after_error(state: DocumentState) -> str:
 
 # Max retry attempts for error handling
 MAX_RETRY_ATTEMPTS = 3
+
+
+def should_retry_conversion(state: DocumentState) -> str:
+    """Route after error_handler decides retry or fail (Story 6.3).
+
+    Priority:
+    1. retry_count < MAX_RETRY_ATTEMPTS → "retry" (restore checkpoint, retry)
+    2. Otherwise → "fail" (proceed to save_results)
+
+    Args:
+        state: DocumentState with retry_count
+
+    Returns:
+        One of: "retry", "fail"
+    """
+    retry_count = state.get("retry_count", 0)
+    if retry_count < MAX_RETRY_ATTEMPTS:
+        return "retry"
+    return "fail"
