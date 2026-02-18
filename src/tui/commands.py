@@ -42,7 +42,7 @@ def parse_command(raw: str) -> Command | None:
     name = parts[0].lstrip("/")
     args = parts[1:] if len(parts) > 1 else []
 
-    valid_commands = {"title", "intro", "chapter", "remove", "reset", "help", "quit"}
+    valid_commands = {"title", "intro", "chapter", "remove", "reset", "help", "quit", "generate"}
     if name not in valid_commands:
         return None
 
@@ -146,11 +146,30 @@ def handle_help(state: AppState) -> None:
         "  /chapter <id> [title] - Add chapter (optional custom title)",
         "  /remove <index> - Remove chapter by 1-based index",
         "  /reset          - Clear intro and chapters",
+        "  /generate       - Generate the document",
         "  /help           - Show this help",
         "  /quit           - Exit application",
     ]
     state.log_lines.extend(help_text)
     logger.info("help_displayed")
+
+
+def handle_generate(state: AppState) -> None:
+    """Generate the document from the outline."""
+    if not state.title or state.title == "Untitled":
+        state.log_lines.append("Error: Please set a title first with /title")
+        return
+
+    if not state.intro_file and not state.chapters:
+        state.log_lines.append("Error: Please add an intro or at least one chapter")
+        return
+
+    # Log the generation request (pipeline not yet implemented)
+    state.log_lines.append(f"Generating document: {state.title}")
+    state.log_lines.append(f"  Intro: {state.intro_file or '(none)'}")
+    state.log_lines.append(f"  Chapters: {len(state.chapters)}")
+    logger.info("document_generation_started", extra={"title": state.title})
+    state.log_lines.append("Document generation not yet implemented")
 
 
 def handle_quit(state: AppState, running_ref: list[bool]) -> None:

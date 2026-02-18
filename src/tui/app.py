@@ -1,12 +1,8 @@
 """Main DocForge TUI application."""
 
-import threading
-from queue import Queue, Empty
+import sys
+import time
 
-from rich.live import Live
-from rich.console import Console, Group
-from rich.text import Text
-from rich.columns import Columns
 from src.tui.state import AppState
 from src.tui.panels import render_sources, render_outline, render_log
 from src.tui.watcher import FileWatcher
@@ -19,6 +15,7 @@ from src.tui.commands import (
     handle_reset,
     handle_help,
     handle_quit,
+    handle_generate,
 )
 
 
@@ -29,49 +26,71 @@ class DocForgeApp:
         self.state = state
         self.watcher = watcher
         self._input_buffer = ""
-        self._live = None
         self._running = True
-        self._input_queue: Queue[str] = Queue()
-        self._input_thread: threading.Thread | None = None
 
     def _make_layout(self):
         """Create the layout structure (placeholder for future Rich Layout)."""
         return None
 
-    def _render(self):
-        """Render all panels and return the complete display."""
-        sources = render_sources(self.state)
-        outline = render_outline(self.state)
-        log_panel = render_log(self.state)
+    def _clear_screen(self):
+        """Clear the terminal screen."""
+        print("\033[2J\033[H", end="")
 
-        # Top row: Sources | Outline
-        top_row = Columns([sources, outline], equal=False)
+    def _render(self) -> str:
+        """Render all panels and return the string display."""
+        from io import StringIO
+        from rich.console import Console
 
-        return Group(
-            top_row,
-            log_panel,
-            Text(f"> {self._input_buffer}", style="bold cyan"),
-        )
+        # Render each panel to a string with specific widths
+        sources_io = StringIO()
+        console_s = Console(file=sources_io, width=28, force_terminal=True)
+        console_s.print(render_sources(self.state))
+        sources_str = sources_io.getvalue().rstrip()
 
-    def _run_input_loop(self):
-        """Run the input loop in a separate thread."""
-        while self._running:
-            try:
-                line = input()
-                if line.strip():
-                    self._input_queue.put(line)
-            except EOFError:
-                break
-            except Exception:
-                # Handle any other input errors gracefully
-                break
+        outline_io = StringIO()
+        console_o = Console(file=outline_io, width=28, force_terminal=True)
+        console_o.print(render_outline(self.state))
+        outline_str = outline_io.getvalue().rstrip()
 
-    def _execute_command(self, raw: str) -> None:
-        """Parse and execute a command."""
+        log_io = StringIO()
+        console_l = Console(file=log_io, width=58, force_terminal=True)
+        console_l.print(render_log(self.state))
+        log_str = log_io.getvalue().rstrip()
+
+        # Build the final display
+        display = []
+        display.append("\033[1;37;44m" + " DocForge - Document Creator ".center(60) + "\033[0m")
+        display.append("")
+
+        # Two column layout for sources and outline
+        sources_lines = sources_str.split('\n')
+        outline_lines = outline_str.split('\n')
+        max_rows = max(len(sources_lines), len(outline_lines))
+
+        for i in range(max_rows):
+            s = sources_lines[i] if i < len(sources_lines) else ""
+            o = outline_lines[i] if i < len(outline_lines) else ""
+            display.append(f"{s:<28} {o}")
+
+        display.append("")
+        display.append("\033[90m" + "─" * 60 + "\033[0m")
+        display.append("\033[1mLOG\033[0m")
+        display.append("\033[90m" + "─" * 60 + "\033[0m")
+
+        for line in log_str.split('\n'):
+            display.append(line)
+
+        display.append("")
+        display.append(f"\033[1;36m> {self._input_buffer}\033[0m")
+
+        return "\n".join(display)
+
+    def _execute_command(self, raw: str) -> bool:
+        """Parse and execute a command. Returns False if app should quit."""
         cmd = parse_command(raw)
         if cmd is None:
             self.state.log_lines.append(f"Unknown command: {raw}")
-            return
+            return True
 
         if cmd.name == "title":
             handle_title(self.state, cmd.args)
@@ -85,34 +104,38 @@ class DocForgeApp:
             handle_reset(self.state)
         elif cmd.name == "help":
             handle_help(self.state)
+        elif cmd.name == "generate":
+            handle_generate(self.state)
         elif cmd.name == "quit":
             handle_quit(self.state, [self._running])
+            return False
+
+        return True
 
     def run(self):
-        """Start the Live loop with refresh_per_second=4."""
-        # Start input thread
-        self._input_thread = threading.Thread(target=self._run_input_loop, daemon=True)
-        self._input_thread.start()
+        """Start the TUI application."""
+        # Initial render
+        self._clear_screen()
+        print(self._render())
+        print("\n\033[1;33mType a command and press Enter. Try /help for available commands.\033[0m")
 
-        console = Console()
-        with Live(
-            self._render(), console=console, refresh_per_second=4, screen=True
-        ) as live:
-            self._live = live
-            try:
-                while self._running:
-                    live.update(self._render())
+        try:
+            while self._running:
+                # Use standard input() - user will see what they type
+                try:
+                    line = input("\n> ")
+                except EOFError:
+                    break
 
-                    # Process input queue (non-blocking)
-                    try:
-                        while True:
-                            line = self._input_queue.get_nowait()
-                            self._execute_command(line)
-                    except Empty:
-                        pass
+                if line.strip():
+                    should_continue = self._execute_command(line)
+                    if not should_continue:
+                        break
 
-                    import time
+                # Redraw screen after command execution
+                if self._running:
+                    self._clear_screen()
+                    print(self._render())
 
-                    time.sleep(0.25)
-            except KeyboardInterrupt:
-                pass
+        except KeyboardInterrupt:
+            print("\n\033[1;32mGoodbye!\033[0m")

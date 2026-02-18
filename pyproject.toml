@@ -8,6 +8,7 @@ dependencies = [
     "watchdog",
     "litellm",
     "pydantic",
+    "prompt-toolkit",
 ]
 
 [dependency-groups]
