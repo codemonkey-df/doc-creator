@@ -1,6 +1,5 @@
 """Tests for TUI panels."""
 
-import pytest
 from src.tui.state import AppState
 from src.tui.panels import render_sources, render_outline, render_log
 
@@ -31,14 +30,19 @@ class TestRenderSources:
 
     def test_marks_used_intro_file(self):
         """Used intro file should be marked with checkmark."""
-        state = AppState(detected_files=["intro.md", "chapter1.md"], intro_file="intro.md")
+        state = AppState(
+            detected_files=["intro.md", "chapter1.md"], intro_file="intro.md"
+        )
         panel = render_sources(state)
         content = str(panel.renderable)
         assert "✓" in content
 
     def test_marks_used_chapter_files(self):
         """Used chapter files should be marked with checkmark."""
-        state = AppState(detected_files=["intro.md", "chapter1.md", "chapter2.md"], chapters=["chapter1.md"])
+        state = AppState(
+            detected_files=["intro.md", "chapter1.md", "chapter2.md"],
+            chapters=["chapter1.md"],
+        )
         panel = render_sources(state)
         content = str(panel.renderable)
         assert "✓" in content

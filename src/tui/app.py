@@ -6,13 +6,15 @@ from rich.text import Text
 from rich.columns import Columns
 from src.tui.state import AppState
 from src.tui.panels import render_sources, render_outline, render_log
+from src.tui.watcher import FileWatcher
 
 
 class DocForgeApp:
     """Main TUI application with live rendering."""
 
-    def __init__(self, state: AppState):
+    def __init__(self, state: AppState, watcher: FileWatcher):
         self.state = state
+        self.watcher = watcher
         self._input_buffer = ""
         self._live = None
 
@@ -38,12 +40,15 @@ class DocForgeApp:
     def run(self):
         """Start the Live loop with refresh_per_second=4."""
         console = Console()
-        with Live(self._render(), console=console, refresh_per_second=4, screen=True) as live:
+        with Live(
+            self._render(), console=console, refresh_per_second=4, screen=True
+        ) as live:
             self._live = live
             try:
                 while True:
                     live.update(self._render())
                     import time
+
                     time.sleep(0.25)
             except KeyboardInterrupt:
                 pass

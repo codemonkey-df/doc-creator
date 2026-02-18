@@ -1,6 +1,5 @@
 """Tests for src/tui/state.py module."""
 
-import pytest
 
 from src.tui.state import AppState, ChapterEntry
 
@@ -11,6 +10,7 @@ class TestAppState:
     def test_appstate_dataclass_exists(self):
         """AppState should be importable from src.tui.state."""
         from src.tui.state import AppState
+
         assert AppState is not None
 
     def test_appstate_default_values(self):
@@ -30,7 +30,7 @@ class TestAppState:
             intro_file="intro.md",
             chapters=["chapter1.md", "chapter2.md"],
             detected_files=["file1.md", "file2.md"],
-            log_lines=["Starting..."]
+            log_lines=["Starting..."],
         )
 
         assert state.title == "My Document"
@@ -46,14 +46,12 @@ class TestChapterEntry:
     def test_chapter_entry_dataclass_exists(self):
         """ChapterEntry should be importable from src.tui.state."""
         from src.tui.state import ChapterEntry
+
         assert ChapterEntry is not None
 
     def test_chapter_entry_fields(self):
         """ChapterEntry should have correct fields."""
-        entry = ChapterEntry(
-            file_path="chapter1.md",
-            custom_title="Custom Title"
-        )
+        entry = ChapterEntry(file_path="chapter1.md", custom_title="Custom Title")
 
         assert entry.file_path == "chapter1.md"
         assert entry.custom_title == "Custom Title"

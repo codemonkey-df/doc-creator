@@ -1,7 +1,6 @@
 """Tests for src/main.py module."""
 
 import argparse
-import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -78,8 +77,28 @@ class TestMainExecution:
 
     def test_main_prints_starting_message(self, temp_dir, capsys):
         """Main should print 'DocForge starting...'"""
-        with patch("sys.argv", ["main.py"]):
+        # Create a temp input directory
+        input_dir = temp_dir / "input"
+        input_dir.mkdir()
+
+        import sys
+
+        # Remove cached modules to ensure fresh import
+        for mod_name in list(sys.modules.keys()):
+            if mod_name.startswith("src"):
+                del sys.modules[mod_name]
+
+        with (
+            patch("sys.argv", ["main.py", "--input", str(input_dir)]),
+            patch("src.tui.app.DocForgeApp") as MockDocForgeApp,
+        ):
+            # Mock the app to not actually run
+            mock_app = MockDocForgeApp.return_value
+            mock_app.run = lambda: None
+            MockDocForgeApp.return_value = mock_app
+
             from src import main
+
             main.main()
 
         captured = capsys.readouterr()
@@ -92,9 +111,11 @@ class TestProjectStructure:
     def test_tui_module_importable(self):
         """src.tui module should be importable."""
         from src import tui
+
         assert tui is not None
 
     def test_state_module_importable(self):
         """src.tui.state module should be importable."""
         from src.tui import state
+
         assert state is not None
