@@ -1,8 +1,5 @@
 """Main DocForge TUI application."""
 
-import sys
-import time
-
 from src.tui.state import AppState
 from src.tui.panels import render_sources, render_outline, render_log
 from src.tui.watcher import FileWatcher
@@ -59,12 +56,14 @@ class DocForgeApp:
 
         # Build the final display
         display = []
-        display.append("\033[1;37;44m" + " DocForge - Document Creator ".center(60) + "\033[0m")
+        display.append(
+            "\033[1;37;44m" + " DocForge - Document Creator ".center(60) + "\033[0m"
+        )
         display.append("")
 
         # Two column layout for sources and outline
-        sources_lines = sources_str.split('\n')
-        outline_lines = outline_str.split('\n')
+        sources_lines = sources_str.split("\n")
+        outline_lines = outline_str.split("\n")
         max_rows = max(len(sources_lines), len(outline_lines))
 
         for i in range(max_rows):
@@ -77,7 +76,7 @@ class DocForgeApp:
         display.append("\033[1mLOG\033[0m")
         display.append("\033[90m" + "─" * 60 + "\033[0m")
 
-        for line in log_str.split('\n'):
+        for line in log_str.split("\n"):
             display.append(line)
 
         display.append("")
@@ -117,7 +116,9 @@ class DocForgeApp:
         # Initial render
         self._clear_screen()
         print(self._render())
-        print("\n\033[1;33mType a command and press Enter. Try /help for available commands.\033[0m")
+        print(
+            "\n\033[1;33mType a command and press Enter. Try /help for available commands.\033[0m"
+        )
 
         try:
             while self._running:

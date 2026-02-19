@@ -42,7 +42,16 @@ def parse_command(raw: str) -> Command | None:
     name = parts[0].lstrip("/")
     args = parts[1:] if len(parts) > 1 else []
 
-    valid_commands = {"title", "intro", "chapter", "remove", "reset", "help", "quit", "generate"}
+    valid_commands = {
+        "title",
+        "intro",
+        "chapter",
+        "remove",
+        "reset",
+        "help",
+        "quit",
+        "generate",
+    }
     if name not in valid_commands:
         return None
 
