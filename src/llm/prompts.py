@@ -76,3 +76,29 @@ def prompt_self_heal(markdown: str) -> tuple[str, str]:
 
 Return only valid, corrected Markdown. Do not add any explanatory text."""
     return (system, user)
+
+
+def prompt_summarize_external(content: str, context: str) -> tuple[str, str]:
+    """Generate a prompt to summarize an external file for injection into a chapter.
+
+    Args:
+        content: The content of the external file to summarize.
+        context: The chapter or document context this summary will be injected into.
+
+    Returns:
+        A tuple of (system_prompt, user_prompt).
+    """
+    system = "You are a technical writer. Summarize external content concisely."
+    user = f"""Summarize the following external content for inclusion in a chapter about "{context}".
+
+Focus on extracting the key information that would be relevant to include in this chapter.
+Keep the summary concise but informative. Return the summary in a format suitable for
+injecting as additional context.
+
+External content:
+---
+{content}
+---
+
+Return only the summary, no introductory text."""
+    return (system, user)

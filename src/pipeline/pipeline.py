@@ -5,7 +5,7 @@ import re
 import threading
 from pathlib import Path
 
-from src.llm.generator import ResolvedContext, generate_content
+from src.llm.generator import generate_content
 from src.llm.healer import heal_markdown, needs_healing
 from src.scanner.ref_scanner import Ref, scan_files
 from src.tui.state import AppState
