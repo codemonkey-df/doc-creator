@@ -174,5 +174,26 @@ def run_pipeline_in_background(state: AppState) -> None:
     Args:
         state: The application state.
     """
-    thread = threading.Thread(target=run_pipeline, args=(state,))
+    import copy
+
+    # Create a shallow copy but manually handle the thread-unsafe parts
+    state_copy = copy.copy(state)
+    # Use a fresh log_lines list for the thread
+    state_copy.log_lines = []
+    # Track how many lines we had before running
+    lines_before = len(state.log_lines)
+
+    def run():
+        try:
+            run_pipeline(state_copy)
+        except Exception:
+            # Log unexpected errors
+            logger.exception("pipeline_error_unexpected")
+        finally:
+            # Signal completion and update log lines
+            new_lines = state_copy.log_lines
+            state.log_lines.extend(new_lines)
+            state.pipeline_complete.set()
+
+    thread = threading.Thread(target=run)
     thread.start()

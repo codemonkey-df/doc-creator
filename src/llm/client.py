@@ -41,7 +41,7 @@ def call_llm(system: str, user: str, config: LlmConfig) -> str:
             timeout=config.timeout,
             max_retries=config.max_retries,
             api_base=config.api_base,
-            api_key=config.api_key,
+            api_key=config.api_key.get_secret_value() if config.api_key else None,
             top_p=config.top_p,
             messages=[
                 {"role": "system", "content": system},

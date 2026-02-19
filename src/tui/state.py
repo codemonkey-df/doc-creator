@@ -1,5 +1,6 @@
 """Application state dataclasses."""
 
+import threading
 from dataclasses import dataclass, field
 
 
@@ -20,3 +21,4 @@ class AppState:
     chapters: list[ChapterEntry] = field(default_factory=list)
     detected_files: list[str] = field(default_factory=list)
     log_lines: list[str] = field(default_factory=list)
+    pipeline_complete: threading.Event = field(default_factory=threading.Event)

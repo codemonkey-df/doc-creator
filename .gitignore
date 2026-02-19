@@ -16,3 +16,4 @@ wheels/
 .pytest*
 .env
 docs/
+output/
