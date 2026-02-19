@@ -9,6 +9,7 @@ dependencies = [
     "litellm",
     "pydantic",
     "prompt-toolkit",
+    "pydantic-settings>=2.13.1",
 ]
 
 [dependency-groups]

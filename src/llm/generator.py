@@ -11,6 +11,7 @@ from src.llm.prompts import (
 )
 from src.scanner.ref_scanner import Ref
 from src.tui.state import AppState
+from src.config import LlmConfig
 
 
 @dataclass
@@ -39,7 +40,9 @@ def read_file(path: str | None) -> str:
         return ""
 
 
-def generate_content(state: AppState, resolved: ResolvedContext) -> str:
+def generate_content(
+    state: AppState, resolved: ResolvedContext, config: LlmConfig
+) -> str:
     """Generate final markdown content from intro and chapter files.
 
     Args:
@@ -53,7 +56,7 @@ def generate_content(state: AppState, resolved: ResolvedContext) -> str:
     state.log_lines.append("Summarizing introduction...")
     intro_content = read_file(state.intro_file)
     system, user = prompt_summarize_intro(intro_content)
-    intro_md = call_llm(system, user)
+    intro_md = call_llm(system, user, config)
 
     # Step 2: Structure each chapter
     chapter_mds = []
@@ -74,13 +77,13 @@ def generate_content(state: AppState, resolved: ResolvedContext) -> str:
                 )
 
         system, user = prompt_structure_chapter(chapter_content + extra_context, title)
-        chapter_md = call_llm(system, user)
+        chapter_md = call_llm(system, user, config)
         chapter_mds.append(chapter_md)
 
     # Step 3: Generate TOC
     state.log_lines.append("Generating table of contents...")
     system, user = prompt_generate_toc(state.title, chapter_titles)
-    toc_md = call_llm(system, user)
+    toc_md = call_llm(system, user, config)
 
     # Step 4: Assemble final output
     title_block = f"# {state.title}\n\n---"

@@ -9,6 +9,8 @@ from src.llm.generator import ResolvedContext, generate_content
 from src.llm.healer import heal_markdown, needs_healing
 from src.scanner.ref_scanner import Ref, scan_files
 from src.tui.state import AppState
+from src.converter.run_converter import convert_to_docx
+from src.config import LlmConfig
 
 logger = logging.getLogger(__name__)
 
@@ -124,13 +126,19 @@ def slugify(text: str) -> str:
     return slug
 
 
-def run_pipeline(state: AppState) -> None:
+def run_pipeline(state: AppState) -> Path | None:
     """Run the complete document generation pipeline.
 
     Args:
         state: The application state containing document configuration.
+
+    Returns:
+        Path to the output .docx file, or None if pipeline failed.
     """
     try:
+        # Initialize LLM config
+        config = LlmConfig()
+
         # Stage 1: Validate configuration
         state.log_lines.append("Starting pipeline...")
         validate_config(state)
@@ -144,23 +152,31 @@ def run_pipeline(state: AppState) -> None:
 
         # Stage 4: Generate content
         state.log_lines.append("Generating content...")
-        markdown = generate_content(state, resolved)
+        markdown = generate_content(state, resolved, config)
 
         # Stage 4b: Self-heal (after generate_content)
         if needs_healing(markdown):
             state.log_lines.append("Self-healing markdown...")
-            markdown = heal_markdown(markdown)
+            markdown = heal_markdown(markdown, config)
 
         # Stage 5: Write output
         state.log_lines.append("Writing output...")
         output_path = write_output(markdown, state)
 
-        state.log_lines.append(f"Done. Output: {output_path}")
-        logger.info("pipeline_complete", extra={"output_path": str(output_path)})
+        # Stage 6: Convert to DOCX
+        state.log_lines.append("Converting to DOCX...")
+        docx_path = output_path.with_suffix(".docx")
+        convert_to_docx(output_path, state.title, docx_path)
+
+        state.log_lines.append(f"Done. Output: {docx_path}")
+        logger.info("pipeline_complete", extra={"output_path": str(docx_path)})
+
+        return docx_path
 
     except PipelineError as e:
         state.log_lines.append(f"Error [{e.stage}]: {e.message}")
         logger.error("pipeline_error", extra={"stage": e.stage, "error_msg": e.message})
+        return None
 
 
 def run_pipeline_in_background(state: AppState) -> None:

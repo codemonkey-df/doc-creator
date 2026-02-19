@@ -2,6 +2,7 @@
 
 from src.llm.client import call_llm
 from src.llm.prompts import prompt_self_heal
+from src.config import LlmConfig
 
 
 def needs_healing(markdown: str) -> bool:
@@ -33,7 +34,7 @@ def needs_healing(markdown: str) -> bool:
     return False
 
 
-def heal_markdown(markdown: str) -> str:
+def heal_markdown(markdown: str, config: LlmConfig) -> str:
     """Call the LLM to fix malformed Markdown.
 
     Args:
@@ -43,4 +44,4 @@ def heal_markdown(markdown: str) -> str:
         The fixed Markdown content.
     """
     system, user = prompt_self_heal(markdown)
-    return call_llm(system, user)
+    return call_llm(system, user, config)

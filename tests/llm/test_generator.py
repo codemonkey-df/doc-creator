@@ -10,6 +10,7 @@ from src.llm.generator import (
     read_file,
 )
 from src.tui.state import AppState, ChapterEntry
+from src.config import LlmConfig
 
 
 class TestReadFile:
@@ -47,7 +48,12 @@ class TestGenerateContent:
             mock.return_value = "Mocked content"
             yield mock
 
-    def test_assembly_order_correct(self, mock_call_llm):
+    @pytest.fixture
+    def config(self):
+        """Fixture to return a LlmConfig instance."""
+        return LlmConfig()
+
+    def test_assembly_order_correct(self, mock_call_llm, config):
         """Test that final output has correct assembly order."""
         state = AppState(
             title="Test Document",
@@ -60,7 +66,7 @@ class TestGenerateContent:
         resolved = ResolvedContext()
 
         with patch("src.llm.generator.read_file", return_value=""):
-            result = generate_content(state, resolved)
+            result = generate_content(state, resolved, config)
 
         # Check title block at start
         assert result.startswith("# Test Document\n\n---")
@@ -73,7 +79,7 @@ class TestGenerateContent:
         intro_pos = result.find("Mocked content", toc_pos + 1)
         assert intro_pos > toc_pos
 
-    def test_to_summarize_injected_into_correct_chapter(self, mock_call_llm):
+    def test_to_summarize_injected_into_correct_chapter(self, mock_call_llm, config):
         """Test that to_summarize content is injected into correct chapter."""
         state = AppState(
             title="Test Document",
@@ -98,7 +104,7 @@ class TestGenerateContent:
 
             mock_read.side_effect = read_side_effect
 
-            generate_content(state, resolved)
+            generate_content(state, resolved, config)
 
             # Check that call_llm was called with the extra context for ch2
             calls = mock_call_llm.call_args_list
@@ -112,7 +118,7 @@ class TestGenerateContent:
             assert "Additional context to consider:" in user_prompt
             assert "Extra summary content for chapter 2" in user_prompt
 
-    def test_title_block_format(self, mock_call_llm):
+    def test_title_block_format(self, mock_call_llm, config):
         """Test that title block is formatted correctly."""
         state = AppState(
             title="My Document",
@@ -121,11 +127,11 @@ class TestGenerateContent:
         )
         resolved = ResolvedContext()
 
-        result = generate_content(state, resolved)
+        result = generate_content(state, resolved, config)
 
         assert result.startswith("# My Document\n\n---")
 
-    def test_toc_section_present(self, mock_call_llm):
+    def test_toc_section_present(self, mock_call_llm, config):
         """Test that TOC section is present in output."""
         state = AppState(
             title="Test Document",
@@ -138,14 +144,14 @@ class TestGenerateContent:
         resolved = ResolvedContext()
 
         with patch("src.llm.generator.read_file", return_value=""):
-            result = generate_content(state, resolved)
+            result = generate_content(state, resolved, config)
 
         # The TOC should appear after title block
         lines = result.split("\n")
         # Find the line after the title block separator
         assert "---" in lines[2]
 
-    def test_intro_section_present(self, mock_call_llm):
+    def test_intro_section_present(self, mock_call_llm, config):
         """Test that introduction section is present in output."""
         state = AppState(
             title="Test Document",
@@ -157,12 +163,12 @@ class TestGenerateContent:
         with patch("src.llm.generator.read_file") as mock_read:
             mock_read.return_value = "Intro content here"
 
-            generate_content(state, resolved)
+            generate_content(state, resolved, config)
 
             # Should have called summarize_intro
             assert mock_call_llm.call_count == 2  # intro + TOC
 
-    def test_chapter_sections_present(self, mock_call_llm):
+    def test_chapter_sections_present(self, mock_call_llm, config):
         """Test that chapter sections are present in output."""
         state = AppState(
             title="Test Document",
@@ -175,7 +181,7 @@ class TestGenerateContent:
         resolved = ResolvedContext()
 
         with patch("src.llm.generator.read_file", return_value=""):
-            generate_content(state, resolved)
+            generate_content(state, resolved, config)
 
         # Should have called structure_chapter for each chapter
         # Intro (1) + TOC (1) + chapters (2) = 4 calls

@@ -1,8 +1,7 @@
 """LiteLLM client wrapper for LLM interactions."""
 
-import os
-
 import litellm
+from src.config import LlmConfig
 
 
 class LLMError(Exception):
@@ -19,7 +18,7 @@ class LLMError(Exception):
         super().__init__(f"[{stage}] {message}")
 
 
-def call_llm(system: str, user: str, model: str = "gpt-4o") -> str:
+def call_llm(system: str, user: str, config: LlmConfig) -> str:
     """Call the LLM with the given system and user prompts.
 
     Args:
@@ -34,12 +33,16 @@ def call_llm(system: str, user: str, model: str = "gpt-4o") -> str:
     Raises:
         LLMError: If the LLM call fails.
     """
-    # Override model from environment variable if set
-    actual_model = os.environ.get("DOCFORGE_MODEL", model)
 
     try:
         response = litellm.completion(
-            model=actual_model,
+            model=config.model,
+            temperature=config.temperature,
+            timeout=config.timeout,
+            max_retries=config.max_retries,
+            api_base=config.api_base,
+            api_key=config.api_key,
+            top_p=config.top_p,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},

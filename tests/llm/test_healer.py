@@ -2,8 +2,16 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
 
+from src.config import LlmConfig
 from src.llm.healer import heal_markdown, needs_healing
+
+
+@pytest.fixture
+def config() -> LlmConfig:
+    """Fixture to return a LlmConfig instance."""
+    return LlmConfig()
 
 
 class TestNeedsHealing:
@@ -55,12 +63,14 @@ class TestHealMarkdown:
     """Tests for the heal_markdown function."""
 
     @patch("src.llm.healer.call_llm")
-    def test_heal_markdown_calls_llm(self, mock_call_llm: MagicMock) -> None:
+    def test_heal_markdown_calls_llm(
+        self, mock_call_llm: MagicMock, config: LlmConfig
+    ) -> None:
         """Test that heal_markdown calls the LLM with the correct prompts."""
         mock_call_llm.return_value = "Fixed markdown"
         markdown = "```\ncode\n"
 
-        result = heal_markdown(markdown)
+        result = heal_markdown(markdown, config)
 
         mock_call_llm.assert_called_once()
         call_args = mock_call_llm.call_args
@@ -71,11 +81,13 @@ class TestHealMarkdown:
         assert result == "Fixed markdown"
 
     @patch("src.llm.healer.call_llm")
-    def test_heal_markdown_returns_llm_response(self, mock_call_llm: MagicMock) -> None:
+    def test_heal_markdown_returns_llm_response(
+        self, mock_call_llm: MagicMock, config: LlmConfig
+    ) -> None:
         """Test that heal_markdown returns the LLM's response."""
         expected = "# Fixed Heading\n\nContent"
         mock_call_llm.return_value = expected
 
-        result = heal_markdown("# Heading\nContent")
+        result = heal_markdown("# Heading\nContent", config)
 
         assert result == expected
