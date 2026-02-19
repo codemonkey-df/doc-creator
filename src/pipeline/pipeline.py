@@ -11,6 +11,10 @@ from src.scanner.ref_scanner import Ref, scan_files
 from src.tui.state import AppState
 from src.converter.run_converter import convert_to_docx
 from src.config import LlmConfig
+from src.resolver.ref_resolver import resolve_refs
+
+# Re-export for backward compatibility
+resolve_references = resolve_refs
 
 logger = logging.getLogger(__name__)
 
@@ -62,22 +66,6 @@ def scan_references(state: AppState) -> list[Ref]:
             paths.append(Path(chapter.file_path))
 
     return scan_files(paths)
-
-
-def resolve_references(refs: list[Ref], state: AppState) -> ResolvedContext:
-    """Resolve references to content.
-
-    This is a placeholder implementation that skips all references.
-    Full resolution will be implemented in EPIC 5.
-
-    Args:
-        refs: List of references to resolve.
-        state: The application state.
-
-    Returns:
-        ResolvedContext with all references skipped.
-    """
-    return ResolvedContext(skipped=refs)
 
 
 def write_output(markdown: str, state: AppState) -> Path:
@@ -147,8 +135,9 @@ def run_pipeline(state: AppState) -> Path | None:
         state.log_lines.append("Scanning references...")
         refs = scan_references(state)
 
-        # Stage 3: Resolve references (placeholder)
-        resolved = resolve_references(refs, state)
+        # Stage 3: Resolve references
+        state.log_lines.append("Resolving references...")
+        resolved = resolve_refs(refs, state)
 
         # Stage 4: Generate content
         state.log_lines.append("Generating content...")
