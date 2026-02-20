@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import curses
+import os
 from src.tui.state import AppState
 
 
@@ -131,10 +132,10 @@ def draw_sources_panel(
         badge = f"[{idx:>2}]"
         _safe_addstr(win, row, left + 2, badge, num_attr)
 
-        # filename (truncated)
+        # filename (truncated) - show only basename, not full path
         name_x = left + 2 + len(badge) + 1
         max_name = inner_w - len(badge) - 3
-        name = filepath[:max_name]
+        name = os.path.basename(filepath)[:max_name]
 
         if used:
             _safe_addstr(win, row, name_x, name, used_attr)
@@ -176,7 +177,7 @@ def draw_outline_panel(
 
     # ── Intro ─────────────────────────────────────────────────────────
     if state.intro_file:
-        put_row("Intro  ", state.intro_file, va=chapter_attr)
+        put_row("Intro  ", os.path.basename(state.intro_file), va=chapter_attr)
     else:
         put_row("Intro  ", "(not set)", va=dim_attr)
 
