@@ -58,14 +58,14 @@ class TestValidateConfig:
         assert "Document title required" in exc.value.message
 
     def test_no_intro_raises_error(self):
-        """Missing intro file raises PipelineError."""
+        """Missing intro file raises PipelineError (unless imported file is set)."""
         state = AppState(
             title="My Doc", intro_file=None, chapters=[ChapterEntry("ch1.md")]
         )
         with pytest.raises(PipelineError) as exc:
             validate_config(state)
         assert exc.value.stage == "validate"
-        assert "Introduction file required" in exc.value.message
+        assert "Introduction file or imported file required" in exc.value.message
 
     def test_no_chapters_raises_error(self):
         """Missing chapters raises PipelineError."""

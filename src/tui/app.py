@@ -17,6 +17,7 @@ from src.tui.commands import (
     parse_command,
     handle_title,
     handle_intro,
+    handle_import,
     handle_chapter,
     handle_remove,
     handle_reset,
@@ -82,6 +83,8 @@ class DocForgeApp:
             handle_title(self.state, cmd.args)
         elif cmd.name == "intro":
             handle_intro(self.state, cmd.args)
+        elif cmd.name == "import":
+            handle_import(self.state, cmd.args)
         elif cmd.name == "chapter":
             handle_chapter(self.state, cmd.args)
         elif cmd.name == "remove":

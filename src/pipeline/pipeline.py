@@ -40,10 +40,11 @@ def validate_config(state: AppState) -> None:
     if not state.title or state.title == "Untitled":
         raise PipelineError("validate", "Document title required")
 
-    if not state.intro_file:
-        raise PipelineError("validate", "Introduction file required")
+    # Allow either intro_file (normal workflow) or imported_file (imported workflow)
+    if not state.intro_file and not state.imported_file:
+        raise PipelineError("validate", "Introduction file or imported file required")
 
-    if not state.chapters:
+    if not state.chapters and not state.imported_file:
         raise PipelineError("validate", "At least one chapter required")
 
 
@@ -58,7 +59,10 @@ def scan_references(state: AppState) -> list[Ref]:
     """
     paths: list[Path] = []
 
-    if state.intro_file:
+    # Scan imported file if present, otherwise scan intro file
+    if state.imported_file:
+        paths.append(Path(state.imported_file))
+    elif state.intro_file:
         paths.append(Path(state.intro_file))
 
     for chapter in state.chapters:

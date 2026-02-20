@@ -18,6 +18,7 @@ class AppState:
 
     title: str = "Untitled"
     intro_file: str | None = None
+    imported_file: str | None = None
     chapters: list[ChapterEntry] = field(default_factory=list)
     detected_files: list[str] = field(default_factory=list)
     log_lines: list[str] = field(default_factory=list)
