@@ -11,13 +11,21 @@ def prompt_summarize_intro(content: str) -> tuple[str, str]:
         A tuple of (system_prompt, user_prompt).
     """
     system = (
-        "You are a technical writer. Generate a concise introduction for a document."
+        "You are a technical writer. Create a concise, professional introduction. "
+        "Focus on the main purpose and scope. Keep it brief - 2-4 paragraphs maximum."
     )
-    user = f"""Based on the following source content, generate a concise introduction:
+    user = f"""Create a brief introduction for a document based on this content:
 
+---
 {content}
+---
 
-Return only valid Markdown for the introduction."""
+Write a 4-6 paragraph introduction that:
+- Summarizes the document's purpose
+- Outlines what the reader will learn
+- Uses formal but accessible tone
+
+Return only valid Markdown. Start with H2 heading "Introduction"."""
     return (system, user)
 
 
@@ -31,32 +39,71 @@ def prompt_structure_chapter(content: str, title: str) -> tuple[str, str]:
     Returns:
         A tuple of (system_prompt, user_prompt).
     """
-    system = "You are a technical writer. Structure content into a well-formed chapter."
-    user = f"""Using the following source content, create a well-structured chapter titled "{title}":
+    system = (
+        "You are a technical writer. Create a well-structured, condensed chapter. "
+        "Summarize long content, keep key details. Use clear heading hierarchy."
+    )
+    user = f"""Transform this content into a professional chapter titled "{title}":
 
+---
 {content}
+---
 
-Return only valid Markdown for the chapter."""
+Requirements:
+- Start with H2 heading: ## {title}
+- Add a brief description (2-3 sentences)
+- Use H3 for major sections only (skip minor details)
+- For lists/tasks, keep only the key items (top 3-5)
+- Skip repetitive details and internal notes
+- Keep code blocks only if critical
+- Total chapter should be 30-50% of original length
+
+Return only valid Markdown chapter content."""
     return (system, user)
 
 
-def prompt_generate_toc(doc_title: str, chapter_list: list[str]) -> tuple[str, str]:
+def prompt_generate_toc(
+    doc_title: str,
+    chapter_list: list[tuple[str, list[str]]]
+) -> tuple[str, str]:
     """Generate a prompt to create a table of contents.
 
     Args:
         doc_title: The document title.
-        chapter_list: List of chapter titles.
+        chapter_list: List of tuples of (chapter_title, subheadings_list).
 
     Returns:
         A tuple of (system_prompt, user_prompt).
     """
-    system = "You are a technical writer. Generate a table of contents."
-    chapters = "\n".join(f"- {title}" for title in chapter_list)
-    user = f"""Create a table of contents for a document titled "{doc_title}" with the following chapters:
+    system = (
+        "You are a technical writer. Generate a clean, professional table of contents. "
+        "List only major sections - skip detailed sub-items."
+    )
 
-{chapters}
+    chapters_md = []
+    for title, subheadings in chapter_list:
+        # Filter out Stories - only keep major EPICs/topics
+        major_subheadings = [s for s in subheadings if not s.lower().startswith("story")]
+        if major_subheadings:
+            chapters_md.append(f"- {title}")
+            for sub in major_subheadings[:3]:  # Limit to 3 subheadings max
+                chapters_md.append(f"  - {sub}")
+        else:
+            chapters_md.append(f"- {title}")
 
-Return only valid Markdown for the table of contents."""
+    chapters_str = "\n".join(chapters_md)
+
+    user = f"""Create a table of contents for "{doc_title}" with this structure:
+
+{chapters_str}
+
+IMPORTANT:
+- Only include major section headings (EPICs, Overview, etc.)
+- EXCLUDE Stories (e.g., "Story 1.1") from TOC
+- Limit to 3 subheadings per chapter maximum
+- Include an "Introduction" entry
+
+Format as a clean Markdown list with 2-space indentation for sub-items."""
     return (system, user)
 
 

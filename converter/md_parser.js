@@ -1,231 +1,180 @@
+'use strict';
+
 /**
- * Markdown parser that converts markdown text into typed block objects.
+ * Markdown Parser for DocForge
+ * Parses markdown into a structured block array for DOCX conversion.
+ * Handles: headings, paragraphs, bullet lists (nested), numbered lists, 
+ * code blocks, blockquotes, tables, and horizontal rules.
  */
 
 /**
- * Creates a heading block.
- * @param {number} level - Heading level (1-3)
- * @param {string} text - Heading text
- * @returns {Object} Heading block
+ * Count leading spaces/tabs to determine list indent level
  */
-function heading(level, text) {
-  return { type: 'heading', level, text };
+function getLeadingSpaces(line) {
+  const match = line.match(/^(\s*)/);
+  return match ? match[1].length : 0;
 }
 
 /**
- * Creates a paragraph block.
- * @param {string} text - Paragraph text
- * @returns {Object} Paragraph block
- */
-function paragraph(text) {
-  return { type: 'paragraph', text };
-}
-
-/**
- * Creates a code block.
- * @param {string} lang - Programming language
- * @param {string} content - Code content
- * @returns {Object} Code block
- */
-function code(lang, content) {
-  return { type: 'code', lang, content };
-}
-
-/**
- * Creates a bullet list block.
- * @param {string[]} items - List items
- * @returns {Object} Bullet list block
- */
-function bullet_list(items) {
-  return { type: 'bullet_list', items };
-}
-
-/**
- * Creates a numbered list block.
- * @param {string[]} items - List items
- * @returns {Object} Numbered list block
- */
-function numbered_list(items) {
-  return { type: 'numbered_list', items };
-}
-
-/**
- * Creates a table block.
- * @param {string[]} headers - Table headers
- * @param {string[][]} rows - Table rows
- * @returns {Object} Table block
- */
-function table(headers, rows) {
-  return { type: 'table', headers, rows };
-}
-
-/**
- * Creates a blockquote block.
- * @param {string} text - Quoted text
- * @returns {Object} Blockquote block
- */
-function blockquote(text) {
-  return { type: 'blockquote', text };
-}
-
-/**
- * Creates a placeholder block.
- * @param {string} text - Placeholder text
- * @returns {Object} Placeholder block
- */
-function placeholder(text) {
-  return { type: 'placeholder', text };
-}
-
-/**
- * Parses inline markdown (bold and code) within text.
- * @param {string} text - Text to parse
- * @returns {Object} Text with inline formatting preserved
- */
-function parseInline(text) {
-  return text;
-}
-
-/**
- * Parses markdown text into an array of typed block objects.
- * @param {string} text - Markdown text to parse
- * @returns {Object[]} Array of block objects
+ * Main parse function - returns array of block objects
  */
 function parseMarkdown(text) {
-  if (!text || typeof text !== 'string') {
-    return [];
-  }
-
-  const blocks = [];
   const lines = text.split('\n');
+  const blocks = [];
   let i = 0;
 
   while (i < lines.length) {
     const line = lines[i];
+    const trimmed = line.trim();
 
-    // Skip empty lines but continue processing
-    if (line.trim() === '') {
+    // Skip empty lines
+    if (!trimmed) {
       i++;
       continue;
     }
 
-    // Headings: # H1, ## H2, ### H3
-    const headingMatch = line.match(/^(#{1,3})\s+(.+)$/);
+    // Heading
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.*)/);
     if (headingMatch) {
-      const level = headingMatch[1].length;
-      const text = headingMatch[2].trim();
-      blocks.push(heading(level, text));
+      blocks.push({
+        type: 'heading',
+        level: headingMatch[1].length,
+        text: headingMatch[2].trim(),
+      });
       i++;
       continue;
     }
 
-    // Fenced code blocks: ```lang
-    const codeBlockMatch = line.match(/^```(\w*)$/);
-    if (codeBlockMatch) {
-      const lang = codeBlockMatch[1] || '';
+    // Fenced code block
+    if (trimmed.startsWith('```')) {
+      const lang = trimmed.slice(3).trim();
       const codeLines = [];
       i++;
-      while (i < lines.length && !lines[i].startsWith('```')) {
+      while (i < lines.length && !lines[i].trim().startsWith('```')) {
         codeLines.push(lines[i]);
         i++;
       }
-      blocks.push(code(lang, codeLines.join('\n')));
-      i++; // Skip closing ```
+      i++; // skip closing ```
+      blocks.push({
+        type: 'code',
+        lang,
+        content: codeLines.join('\n'),
+      });
       continue;
     }
 
-    // Blockquotes: > text
-    if (line.startsWith('>')) {
-      const text = line.slice(1).trim();
-      blocks.push(blockquote(text));
-      i++;
+    // Blockquote
+    if (trimmed.startsWith('>')) {
+      const quoteLines = [];
+      while (i < lines.length && lines[i].trim().startsWith('>')) {
+        quoteLines.push(lines[i].trim().replace(/^>\s?/, ''));
+        i++;
+      }
+      blocks.push({
+        type: 'blockquote',
+        text: quoteLines.join(' '),
+      });
       continue;
     }
 
-    // Tables: | header | header |
-    const tableMatch = line.match(/^\|.+\|$/);
-    if (tableMatch && i + 1 < lines.length && lines[i + 1].match(/^\|[\s-:\|]+$/)) {
-      const headerLine = line;
-      const separatorLine = lines[i + 1];
-
-      // Parse headers
-      const headers = headerLine
-        .split('|')
-        .filter(cell => cell.trim() !== '')
-        .map(cell => cell.trim());
-
-      // Skip separator line and parse rows
-      const rows = [];
-      i += 2;
-      while (i < lines.length && lines[i].match(/^\|.+\|$/)) {
-        const row = lines[i]
+    // Table (pipe-separated)
+    if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+      const tableLines = [];
+      while (i < lines.length && lines[i].trim().startsWith('|')) {
+        tableLines.push(lines[i].trim());
+        i++;
+      }
+      // Parse table: first row = headers, second row = separator, rest = data
+      const parseRow = (row) =>
+        row
+          .slice(1, -1) // remove outer pipes
           .split('|')
-          .filter(cell => cell.trim() !== '')
-          .map(cell => cell.trim());
-        rows.push(row);
-        i++;
-      }
+          .map((cell) => cell.trim());
 
-      if (headers.length > 0) {
-        blocks.push(table(headers, rows));
-      }
+      const headers = parseRow(tableLines[0]);
+      const rows = tableLines
+        .slice(2) // skip separator
+        .map(parseRow);
+
+      blocks.push({ type: 'table', headers, rows });
       continue;
     }
 
-    // Bullet lists: - item or * item
-    if (line.match(/^[-*]\s+/)) {
+    // Bullet list (*, -, +)
+    if (/^\s*[\*\-\+]\s/.test(line)) {
       const items = [];
-      while (i < lines.length && lines[i].match(/^[-*]\s+/)) {
-        const item = lines[i].replace(/^[-*]\s+/, '');
-        items.push(item);
-        i++;
+      while (i < lines.length) {
+        const l = lines[i];
+        const isContinuation = l.trim() === '' ? false : true;
+        const isBullet = /^\s*[\*\-\+]\s/.test(l);
+        const isNested = /^\s+[\*\-\+]\s/.test(l) || /^\s{4,}/.test(l);
+
+        if (!l.trim()) {
+          // Check if next line is still a list item
+          const next = lines[i + 1];
+          if (!next || !/^\s*[\*\-\+]\s/.test(next)) break;
+          i++;
+          continue;
+        }
+
+        if (isBullet) {
+          const spaces = getLeadingSpaces(l);
+          // Level: 0 for top-level (0-3 spaces), 1 for (4-7), 2 for (8+)
+          const level = Math.floor(spaces / 4);
+          const text = l.trim().replace(/^[\*\-\+]\s+/, '');
+          items.push({ text, level });
+          i++;
+        } else {
+          break;
+        }
       }
-      if (items.length > 0) {
-        blocks.push(bullet_list(items));
-      }
+      blocks.push({ type: 'bullet_list', items });
       continue;
     }
 
-    // Numbered lists: 1. item
-    if (line.match(/^\d+\.\s+/)) {
+    // Numbered list
+    if (/^\s*\d+\.\s/.test(line)) {
       const items = [];
-      while (i < lines.length && lines[i].match(/^\d+\.\s+/)) {
-        const item = lines[i].replace(/^\d+\.\s+/, '');
-        items.push(item);
+      while (i < lines.length && /^\s*\d+\.\s/.test(lines[i])) {
+        const spaces = getLeadingSpaces(lines[i]);
+        const level = Math.floor(spaces / 4);
+        const text = lines[i].trim().replace(/^\d+\.\s+/, '');
+        items.push({ text, level });
         i++;
       }
-      if (items.length > 0) {
-        blocks.push(numbered_list(items));
-      }
+      blocks.push({ type: 'numbered_list', items });
       continue;
     }
 
-    // Placeholders: [Image: x] or [External: x]
-    const placeholderMatch = line.match(/^\[(Image|External):\s*(.+)\]$/);
-    if (placeholderMatch) {
-      const placeholderText = `${placeholderMatch[1]}: ${placeholderMatch[2]}`;
-      blocks.push(placeholder(placeholderText));
+    // Horizontal rule
+    if (/^[-*_]{3,}$/.test(trimmed)) {
+      blocks.push({ type: 'hr' });
       i++;
       continue;
     }
 
-    // Regular paragraph
-    blocks.push(paragraph(line));
-    i++;
+    // Paragraph - collect until blank line or block element
+    const paraLines = [];
+    while (i < lines.length) {
+      const l = lines[i];
+      const t = l.trim();
+      if (!t) break;
+      if (/^#{1,6}\s/.test(t)) break;
+      if (t.startsWith('```')) break;
+      if (t.startsWith('>')) break;
+      if (t.startsWith('|') && t.endsWith('|')) break;
+      if (/^\s*[\*\-\+]\s/.test(l)) break;
+      if (/^\s*\d+\.\s/.test(l)) break;
+      if (/^[-*_]{3,}$/.test(t)) break;
+      paraLines.push(t);
+      i++;
+    }
+    if (paraLines.length) {
+      blocks.push({ type: 'paragraph', text: paraLines.join(' ') });
+    }
   }
 
   return blocks;
 }
 
-module.exports = {
-  parseMarkdown,
-  heading,
-  paragraph,
-  code,
-  bullet_list,
-  numbered_list,
-  table,
-  blockquote,
-  placeholder,
-  parseInline
-};
+module.exports = { parseMarkdown };

@@ -54,7 +54,9 @@ class TestPromptGenerateToc:
 
     def test_returns_non_empty_tuple(self) -> None:
         """Test that the function returns a non-empty tuple."""
-        result = prompt_generate_toc("My Document", ["Chapter 1", "Chapter 2"])
+        # New format: list of tuples (chapter_title, subheadings_list)
+        chapters = [("Chapter 1", []), ("Chapter 2", ["Sub A", "Sub B"])]
+        result = prompt_generate_toc("My Document", chapters)
 
         assert isinstance(result, tuple)
         assert len(result) == 2
@@ -63,11 +65,20 @@ class TestPromptGenerateToc:
 
     def test_includes_chapters_in_user_prompt(self) -> None:
         """Test that chapter titles are included in the user prompt."""
-        chapters = ["Chapter 1", "Chapter 2"]
+        # New format: list of tuples (chapter_title, subheadings_list)
+        chapters = [("Chapter 1", []), ("Chapter 2", ["Sub A", "Sub B"])]
         _, user = prompt_generate_toc("Doc Title", chapters)
 
         assert "Chapter 1" in user
         assert "Chapter 2" in user
+
+    def test_includes_subheadings_in_user_prompt(self) -> None:
+        """Test that subheadings are included in the user prompt."""
+        chapters = [("Chapter 1", ["Introduction", "Background"])]
+        _, user = prompt_generate_toc("Doc Title", chapters)
+
+        assert "Introduction" in user
+        assert "Background" in user
 
 
 class TestPromptSelfHeal:

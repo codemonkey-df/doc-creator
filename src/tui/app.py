@@ -122,6 +122,12 @@ class DocForgeApp:
 
         try:
             while self._running:
+                # Check if background pipeline completed
+                if self.state.pipeline_complete.is_set():
+                    self.state.pipeline_complete.clear()
+                    self._clear_screen()
+                    print(self._render())
+
                 # Use standard input() - user will see what they type
                 try:
                     line = input("\n> ")
@@ -132,6 +138,16 @@ class DocForgeApp:
                     should_continue = self._execute_command(line)
                     if not should_continue:
                         break
+
+                    # Small delay to allow background pipeline to complete
+                    import time
+                    time.sleep(0.1)
+
+                    # Check if background pipeline completed after command
+                    if self.state.pipeline_complete.is_set():
+                        self.state.pipeline_complete.clear()
+                        self._clear_screen()
+                        print(self._render())
 
                 # Redraw screen after command execution
                 if self._running:

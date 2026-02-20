@@ -12,7 +12,8 @@ def scan_input_folder(input_path: Path) -> list[str]:
     """Scan input folder for markdown files, sorted by filename."""
     if not input_path.exists():
         return []
-    return sorted([f.name for f in input_path.glob("*.md")])
+    # Return absolute paths to ensure files can be read from any directory
+    return [str(f.absolute()) for f in sorted(input_path.glob("*.md"))]
 
 
 def main():
