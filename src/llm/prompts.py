@@ -20,7 +20,7 @@ def prompt_summarize_intro(content: str) -> tuple[str, str]:
 {content}
 ---
 
-Write a 2-4 paragraph introduction that:
+Write a 4-6 paragraph introduction that:
 - Summarizes the document's purpose
 - Outlines what the reader will learn
 - Uses formal but accessible tone

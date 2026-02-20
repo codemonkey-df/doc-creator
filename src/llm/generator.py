@@ -1,13 +1,11 @@
 """Content generator module for assembling final markdown documents."""
 
 import logging
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from src.llm.client import call_llm
 from src.llm.prompts import (
-    prompt_generate_toc,
     prompt_structure_chapter,
     prompt_summarize_intro,
 )
@@ -16,29 +14,6 @@ from src.tui.state import AppState
 from src.config import LlmConfig
 
 logger = logging.getLogger(__name__)
-
-
-def extract_subheadings(markdown: str, max_depth: int = 2) -> list[str]:
-    """Extract headings from markdown content up to specified depth.
-
-    Args:
-        markdown: The markdown content to parse.
-        max_depth: Maximum heading depth to extract (default: 2 for H2 only).
-
-    Returns:
-        List of subheading text.
-    """
-    # Match headings up to max_depth (e.g., ## for depth 2, ### for depth 3)
-    pattern = rf'^(#{{{2},{max_depth}}})\s+(.+)$'
-    subheadings = []
-
-    for line in markdown.split('\n'):
-        match = re.match(pattern, line.strip())
-        if match:
-            heading_text = match.group(2).strip()
-            subheadings.append(heading_text)
-
-    return subheadings
 
 
 @dataclass
@@ -95,7 +70,6 @@ def generate_content(
 
     # Step 2: Structure each chapter
     chapter_mds = []
-    chapter_titles_with_subs: list[tuple[str, list[str]]] = []
 
     for i, chapter in enumerate(state.chapters):
         title = chapter.custom_title or f"Chapter {i + 1}"
@@ -121,27 +95,10 @@ def generate_content(
 
         logger.info("chapter_generated", extra={"chapter": title, "chapter_len": len(chapter_md), "preview": chapter_md[:200] if chapter_md else "EMPTY"})
 
-        # Extract subheadings from generated chapter
-        subheadings = extract_subheadings(chapter_md)
-        chapter_titles_with_subs.append((title, subheadings))
-
-        logger.info("subheadings_extracted", extra={"chapter": title, "subheadings": subheadings})
-
         chapter_mds.append(chapter_md)
 
-    # Step 3: Generate TOC with subheadings
-    # Include Introduction as first entry
-    toc_chapters = [("Introduction", [])] + chapter_titles_with_subs
-
-    state.log_lines.append("Generating table of contents...")
-    system, user = prompt_generate_toc(state.title, toc_chapters)
-    toc_md = call_llm(system, user, config, stage="toc")
-
-    logger.info("toc_generated", extra={"toc_len": len(toc_md), "toc_preview": toc_md[:200] if toc_md else "EMPTY"})
-
-    # Step 4: Assemble final output
-    title_block = f"# {state.title}\n\n---"
-    output = f"{title_block}\n\n{toc_md}\n\n{intro_md}\n\n" + "\n\n".join(chapter_mds)
+    # Step 3: Assemble final output (title and TOC added by converter)
+    output = f"{intro_md}\n\n" + "\n\n".join(chapter_mds)
 
     state.log_lines.append("Content generation complete.")
     logger.info("content_assembled", extra={"total_len": len(output)})
