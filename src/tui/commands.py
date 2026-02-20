@@ -9,6 +9,18 @@ from src.tui.state import AppState, ChapterEntry
 
 logger = logging.getLogger(__name__)
 
+# ── Autocomplete metadata (used by the popup in panels.py) ────────────────
+COMMAND_DESCRIPTIONS: dict[str, str] = {
+    "title":    "Set document title",
+    "intro":    "Set intro file by ID",
+    "chapter":  "Add chapter by ID",
+    "remove":   "Remove chapter by index",
+    "reset":    "Clear intro & chapters",
+    "generate": "Generate the document",
+    "help":     "Show all commands",
+    "quit":     "Exit DocForge",
+}
+
 
 @dataclass
 class Command:
@@ -32,7 +44,6 @@ def parse_command(raw: str) -> Command | None:
         return None
 
     try:
-        # Use shlex to properly handle quoted strings
         parts = shlex.split(raw)
     except ValueError:
         return None
@@ -43,17 +54,7 @@ def parse_command(raw: str) -> Command | None:
     name = parts[0].lstrip("/")
     args = parts[1:] if len(parts) > 1 else []
 
-    valid_commands = {
-        "title",
-        "intro",
-        "chapter",
-        "remove",
-        "reset",
-        "help",
-        "quit",
-        "generate",
-    }
-    if name not in valid_commands:
+    if name not in COMMAND_DESCRIPTIONS:
         return None
 
     return Command(name=name, args=args)
@@ -64,7 +65,6 @@ def handle_title(state: AppState, args: list[str]) -> None:
     if not args:
         state.log_lines.append("Usage: /title <title>")
         return
-
     title = " ".join(args)
     state.title = title
     state.log_lines.append(f"Title set to: {title}")
@@ -76,13 +76,11 @@ def handle_intro(state: AppState, args: list[str]) -> None:
     if not args:
         state.log_lines.append("Usage: /intro <id>")
         return
-
     try:
-        idx = int(args[0]) - 1  # Convert to 0-based
+        idx = int(args[0]) - 1
         if idx < 0 or idx >= len(state.detected_files):
             state.log_lines.append(f"Invalid ID: {args[0]}")
             return
-
         filename = state.detected_files[idx]
         state.intro_file = filename
         state.log_lines.append(f"Intro set to: {filename}")
@@ -96,26 +94,20 @@ def handle_chapter(state: AppState, args: list[str]) -> None:
     if not args:
         state.log_lines.append("Usage: /chapter <id> [title]")
         return
-
     try:
-        idx = int(args[0]) - 1  # Convert to 0-based
+        idx = int(args[0]) - 1
         if idx < 0 or idx >= len(state.detected_files):
             state.log_lines.append(f"Invalid ID: {args[0]}")
             return
-
         filename = state.detected_files[idx]
         custom_title = " ".join(args[1:]) if len(args) > 1 else None
-
         chapter = ChapterEntry(file_path=filename, custom_title=custom_title)
         state.chapters.append(chapter)
-
         if custom_title:
             state.log_lines.append(f"Added chapter: {filename} (title: {custom_title})")
         else:
             state.log_lines.append(f"Added chapter: {filename}")
-        logger.info(
-            "chapter_added", extra={"filename": filename, "custom_title": custom_title}
-        )
+        logger.info("chapter_added", extra={"filename": filename, "custom_title": custom_title})
     except ValueError:
         state.log_lines.append(f"Invalid ID: {args[0]}")
 
@@ -125,13 +117,11 @@ def handle_remove(state: AppState, args: list[str]) -> None:
     if not args:
         state.log_lines.append("Usage: /remove <index>")
         return
-
     try:
-        idx = int(args[0]) - 1  # Convert to 0-based
+        idx = int(args[0]) - 1
         if idx < 0 or idx >= len(state.chapters):
             state.log_lines.append(f"Invalid index: {args[0]}")
             return
-
         removed = state.chapters.pop(idx)
         state.log_lines.append(f"Removed: {removed.file_path}")
         logger.info("chapter_removed", extra={"filename": removed.file_path})
@@ -149,24 +139,16 @@ def handle_reset(state: AppState) -> None:
 
 def handle_help(state: AppState) -> None:
     """Display help text."""
-    help_text = [
-        "Commands:",
-        "  /title <text>   - Set document title",
-        "  /intro <id>     - Set intro file by numeric ID",
-        "  /chapter <id> [title] - Add chapter (optional custom title)",
-        "  /remove <index> - Remove chapter by 1-based index",
-        "  /reset          - Clear intro and chapters",
-        "  /generate       - Generate the document",
-        "  /help           - Show this help",
-        "  /quit           - Exit application",
-    ]
-    state.log_lines.extend(help_text)
+    state.log_lines.append("─── Commands ───────────────────────────────")
+    for cmd, desc in COMMAND_DESCRIPTIONS.items():
+        state.log_lines.append(f"  /{cmd:<10} {desc}")
+    state.log_lines.append("────────────────────────────────────────────")
     logger.info("help_displayed")
 
 
 def handle_generate(state: AppState) -> None:
     """Generate the document from the outline."""
-    state.log_lines.append("Starting generation in background...")
+    state.log_lines.append("Starting generation in background…")
     logger.info("document_generation_started", extra={"title": state.title})
     run_pipeline_in_background(state)
 

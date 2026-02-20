@@ -45,7 +45,9 @@ class TestGenerateContent:
     def mock_call_llm(self):
         """Fixture to mock call_llm."""
         with patch("src.llm.generator.call_llm") as mock:
-            mock.return_value = "Mocked content"
+            # Mock returns properly formatted content matching what the real LLM produces
+            # The prompt_summarize_intro asks for "## Introduction" heading
+            mock.return_value = "## Introduction\n\nMocked content"
             yield mock
 
     @pytest.fixture

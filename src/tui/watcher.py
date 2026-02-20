@@ -36,7 +36,6 @@ class FileWatcher:
 
     def _handle_event(self, event_type: str, file_path: str):
         """Handle file system events and refresh file list."""
-        # Small delay to let filesystem settle after events
         time.sleep(0.1)
         files = self._scan_files()
         self.callback(files)
