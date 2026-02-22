@@ -28,7 +28,6 @@ from src.tui.commands import (
     handle_accept,
     handle_cancel,
     COMMAND_DESCRIPTIONS,
-    NORMAL_COMMANDS,
     PREVIEW_COMMANDS,
 )
 
@@ -120,7 +119,7 @@ class DocForgeApp:
             handle_reset(self.state)
         elif cmd.name == "help":
             handle_help(self.state)
-        elif cmd.name == "generate":
+        elif cmd.name == "forge":
             handle_generate(self.state)
         elif cmd.name == "accept":
             handle_accept(self.state)

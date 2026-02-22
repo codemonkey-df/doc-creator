@@ -18,7 +18,7 @@ COMMAND_DESCRIPTIONS: dict[str, str] = {
     "chapter": "Add chapter by ID",
     "remove": "Remove chapter by index",
     "reset": "Clear intro & chapters",
-    "generate": "Generate the document",
+    "forge": "Generate the document",
     "help": "Show all commands",
     "quit": "Exit DocForge",
     # Preview-mode commands (always registered so autocomplete works)
@@ -28,8 +28,7 @@ COMMAND_DESCRIPTIONS: dict[str, str] = {
 
 # Commands shown in normal (non-preview) mode autocomplete
 NORMAL_COMMANDS = {
-    k: v for k, v in COMMAND_DESCRIPTIONS.items()
-    if k not in ("accept", "cancel")
+    k: v for k, v in COMMAND_DESCRIPTIONS.items() if k not in ("accept", "cancel")
 }
 
 # Commands shown in preview mode autocomplete
@@ -203,7 +202,7 @@ def handle_generate(state: AppState) -> None:
 def handle_accept(state: AppState) -> None:
     """Accept the previewed markdown and proceed to DOCX conversion."""
     if not state.preview_mode:
-        state.log_lines.append("Nothing to accept — run /generate first")
+        state.log_lines.append("Nothing to accept — run /forge first")
         return
     state.log_lines.append("Accepted — converting to DOCX…")
     logger.info("preview_accepted")

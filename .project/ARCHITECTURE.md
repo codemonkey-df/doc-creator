@@ -13,7 +13,7 @@
 └──────────────┬──────────────────────────────────────────┘
                │
     ┌──────────▼──────────┐
-    │    Config Phase     │  /title, /intro, /chapter, /generate
+    │    Config Phase     │  /title, /intro, /chapter, /forge
     └──────────┬──────────┘
                │
     ┌──────────▼──────────┐
@@ -126,7 +126,7 @@ class ChapterEntry:
 | `/chapter 2 "Custom Title"` | Add with custom chapter name |
 | `/remove 1` | Remove chapter at index 1 |
 | `/reset` | Clear all mappings |
-| `/generate` | Trigger the pipeline |
+| `/forge` | Trigger the pipeline |
 | `/help` | Show command list |
 | `/quit` | Exit |
 
@@ -264,7 +264,7 @@ User selects files
       ▼
 AppState { title, intro_file, chapters[] }
       │
-      ▼  /generate triggered
+      ▼  /forge triggered
 ref_scanner.scan(intro + chapters)
       │
       ▼
@@ -439,7 +439,7 @@ uv run main.py file1.md file2.md file3.md
 > /intro 1          # intro.md
 > /chapter 2        # auth.md
 > /chapter 3 "Data Models"   # models.md  
-> /generate
+> /forge
   → Scanning references... 3 found
   → [image] diagram.png — skip? (y): y
   → [url] https://github.com/x — skip? (y): y

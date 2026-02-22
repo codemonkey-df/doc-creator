@@ -184,7 +184,7 @@ Add URL detection to the scanner and deduplicate refs so the same URL/path isn't
 ---
 
 ## EPIC 3 — LLM Generation & Pipeline
-**Milestone:** `/generate` runs the full pipeline: validate → scan → LLM calls → write `temp_output.md`.
+**Milestone:** `/forge` runs the full pipeline: validate → scan → LLM calls → write `temp_output.md`.
 **Goal:** Given a configured `AppState`, the pipeline produces a valid, well-structured `temp_output.md` ready for DOCX conversion.
 **Done when:** `temp_output.md` is written with title block, TOC, intro summary, and structured chapters.
 
@@ -263,8 +263,8 @@ Implement `pipeline.py` that wires all stages together: validate → scan → (r
 - [ ] `PipelineError` carries `stage: str` and `message: str`; caught in TUI to show red log message
 
 **Acceptance Criteria**
-- `/generate` with no title set → log shows `"Error [validate]: Document title required"`
-- `/generate` with no intro set → log shows `"Error [validate]: Introduction file required"`
+- `/forge` with no title set → log shows `"Error [validate]: Document title required"`
+- `/forge` with no intro set → log shows `"Error [validate]: Introduction file required"`
 - Successful run writes `output/<title>.md` to disk
 - `state.log_lines` shows progress: "Scanning...", "Generating...", "Done."
 
@@ -272,7 +272,7 @@ Implement `pipeline.py` that wires all stages together: validate → scan → (r
 - [ ] Unit tests: each `PipelineError` case tested
 - [ ] Unit test: `write_output` creates file at correct path
 - [ ] Integration test: full `run_pipeline` with fixture state produces `.md` file
-- [ ] `/generate` command in TUI calls `run_pipeline` in a background thread
+- [ ] `/forge` command in TUI calls `run_pipeline` in a background thread
 
 ---
 
@@ -408,7 +408,7 @@ Implement `src/converter/run_converter.py` that calls `convert.js` via subproces
 ### Story 5.1 — Resolution Screen & Skip Action
 
 **Description**
-After `/generate` triggers the scan, if refs are found, pause the pipeline and show a resolution screen in the TUI. Implement the "skip" action which inserts a placeholder.
+After `/forge` triggers the scan, if refs are found, pause the pipeline and show a resolution screen in the TUI. Implement the "skip" action which inserts a placeholder.
 
 **Tasks**
 - [ ] `src/resolver/ref_resolver.py`: `resolve_refs(refs: list[Ref], state: AppState) -> ResolvedContext`
@@ -429,7 +429,7 @@ After `/generate` triggers the scan, if refs are found, pause the pipeline and s
 **Definition of Done**
 - [ ] Unit test: `resolve_refs` with all-skip input returns `ResolvedContext(skipped=all_refs)`
 - [ ] Unit test: placeholder text correctly formatted for each type
-- [ ] Manual test: trigger `/generate` with fixture containing 1 image ref, choose skip
+- [ ] Manual test: trigger `/forge` with fixture containing 1 image ref, choose skip
 
 ---
 
@@ -465,7 +465,7 @@ Implement the "provide path" action (copy file to session and update ref) and "r
 |------|---------|-----------|-----------|
 | 1 — Core TUI | 1.1, 1.2, 1.3, 1.4 | App runs, commands work, live UI | 3 |
 | 2 — Reference Scanner | 2.1, 2.2 | Scanner returns typed refs with status | 1 |
-| 3 — LLM + Pipeline | 3.1, 3.2, 3.3, 3.4 | `/generate` produces `temp_output.md` | 2–3 |
+| 3 — LLM + Pipeline | 3.1, 3.2, 3.3, 3.4 | `/forge` produces `temp_output.md` | 2–3 |
 | 4 — DOCX Converter | 4.1, 4.2, 4.3 | `output.docx` with correct structure | 2 |
 | 5 — Ref Resolution UI | 5.1, 5.2 | Interactive resolution before generation | 1–2 |
 

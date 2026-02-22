@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import curses
 import os
-from src.tui.state import AppState
 
+from src.tui.state import AppState
 
 # ═══════════════════════════════════════════════════════════════════════════ #
 #  Low-level helpers
@@ -236,7 +236,12 @@ def draw_log_panel(
 
 
 def draw_input_bar(
-    win, top: int, left: int, height: int, width: int, input_buf: list[str],
+    win,
+    top: int,
+    left: int,
+    height: int,
+    width: int,
+    input_buf: list[str],
     preview_mode: bool = False,
 ) -> None:
     """
@@ -251,7 +256,7 @@ def draw_input_bar(
     if preview_mode:
         hints = " /accept · /cancel  ↑↓ scroll "
     else:
-        hints = " /help · /generate · /quit "
+        hints = " /help · /forge · /quit "
     hint_x = max(left, width - len(hints) - 1)
     status = "─" * (hint_x - left)
     _safe_addstr(win, top, left, status, curses.color_pair(2) | curses.A_DIM)
@@ -329,7 +334,7 @@ def draw_command_popup(
         if prefix and cmd.startswith(prefix):
             _safe_addstr(win, row, x, prefix, prefix_attr)
             x += len(prefix)
-            remainder = cmd[len(prefix):]
+            remainder = cmd[len(prefix) :]
             _safe_addstr(win, row, x, remainder, cmd_attr)
             x += len(remainder)
         else:
@@ -349,9 +354,9 @@ def draw_command_popup(
 # ═══════════════════════════════════════════════════════════════════════════ #
 
 # Markdown token → colour heuristics
-_MD_HEADING_ATTR = None   # resolved at draw time (colour pair 4 bold)
-_MD_CODE_ATTR    = None   # colour pair 2
-_MD_BULLET_ATTR  = None   # colour pair 3
+_MD_HEADING_ATTR = None  # resolved at draw time (colour pair 4 bold)
+_MD_CODE_ATTR = None  # colour pair 2
+_MD_BULLET_ATTR = None  # colour pair 3
 
 
 def _md_line_attr(line: str) -> int:
@@ -381,9 +386,9 @@ def draw_preview_panel(
     Replaces the Sources + Outline columns when state.preview_mode is True.
     Supports scrolling via state.preview_scroll.
     """
-    border_attr = curses.color_pair(3) | curses.A_BOLD   # green border = "needs action"
-    dim_attr    = curses.A_DIM
-    path_attr   = curses.color_pair(2) | curses.A_BOLD
+    border_attr = curses.color_pair(3) | curses.A_BOLD  # green border = "needs action"
+    dim_attr = curses.A_DIM
+    path_attr = curses.color_pair(2) | curses.A_BOLD
 
     # ── Load content ───────────────────────────────────────────────────
     lines: list[str] = []
@@ -399,8 +404,8 @@ def draw_preview_panel(
         lines = ["(waiting for markdown…)"]
 
     total_lines = len(lines)
-    inner_h = height - 2          # rows available inside the box
-    inner_w = width - 4           # cols available inside the box
+    inner_h = height - 2  # rows available inside the box
+    inner_w = width - 4  # cols available inside the box
 
     # Clamp scroll
     max_scroll = max(0, total_lines - inner_h + 5)
@@ -425,7 +430,7 @@ def draw_preview_panel(
         available_rows = inner_h
 
     # ── Render visible lines ───────────────────────────────────────────
-    visible = lines[state.preview_scroll: state.preview_scroll + available_rows]
+    visible = lines[state.preview_scroll : state.preview_scroll + available_rows]
     for i, line in enumerate(visible):
         row = content_start_row + i
         if row >= top + height - 1:
